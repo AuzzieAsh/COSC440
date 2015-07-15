@@ -1,9 +1,9 @@
 /*
     File: my_cat.c
     Author: Ashley Manson
- 
+
     An implementation of a cat program in c
- */
+*/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,12 +23,12 @@ int main(int argc, char* argv[]) {
     }
     
     int fd = open(argv[1], O_RDONLY);
-	
-	if (fd < 0) {
-		fprintf(stderr, "Cannot open %s\n", argv[1]);
-		exit(EXIT_FAILURE);
-	}
-	
+    
+    if (fd < 0) {
+        fprintf(stderr, "Cannot open %s\n", argv[1]);
+        exit(EXIT_FAILURE);
+    }
+    
     char buffer[BUFFER_SIZE];
     int size_read;
     int size_write;
