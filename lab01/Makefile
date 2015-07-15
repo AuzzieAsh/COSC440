@@ -10,4 +10,4 @@ my_cat.o: my_cat.c
 	$(CC) $(CFLAGS) -c my_cat.c
 
 clean:
-	$(RM) my_cat *.o *~
+	$(RM) my_cat my_cat.exe *.o *~

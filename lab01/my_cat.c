@@ -2,7 +2,7 @@
     File: my_cat.c
     Author: Ashley Manson
  
-    An implemention of a cat program in c
+    An implementation of a cat program in c
  */
 
 #include <stdio.h>
@@ -18,13 +18,18 @@
 int main(int argc, char* argv[]) {
     
     if (argc < 2) {
-        printf("No file given, usage: %s [file]\n", argv[0]);
+        fprintf(stderr, "No file given, usage: %s [file]\n", argv[0]);
         exit(EXIT_FAILURE);
     }
     
     int fd = open(argv[1], O_RDONLY);
+	
+	if (fd < 0) {
+		fprintf(stderr, "Cannot open %s\n", argv[1]);
+		exit(EXIT_FAILURE);
+	}
+	
     char buffer[BUFFER_SIZE];
-    
     int size_read;
     int size_write;
     size_t size_remaining;
