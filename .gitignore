@@ -5,3 +5,4 @@ Module.symvers
 *.mod.c
 *.mod.o
 *.o
+.DS_Store
