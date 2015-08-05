@@ -68,6 +68,7 @@ mycdrv_read(struct file *file, char __user * buf, size_t lbuf, loff_t * ppos)
 	       current->comm);
 	/* COMPLETE ME */
 	/* Put the process to sleep until data_ready is set */
+	
 	printk(KERN_INFO "process %i (%s) awakening\n", current->pid,
 	       current->comm);
 	return mycdrv_generic_read(file, buf, lbuf, ppos);
@@ -104,6 +105,6 @@ static int __init my_init(void)
 module_init(my_init);
 module_exit(my_generic_exit);
 
-MODULE_AUTHOR("Jerry Cooperstein");
-MODULE_DESCRIPTION("LDD:1.0 s_19/lab1_wait_event.c");
+MODULE_AUTHOR("Ashley Manson");
+MODULE_DESCRIPTION("lab03_wait_event.c");
 MODULE_LICENSE("GPL v2");

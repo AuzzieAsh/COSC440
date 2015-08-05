@@ -1,7 +1,6 @@
-/* **************** LDD:1.0 s_04/lab3_seek.c **************** */
+/* **************** LDD:1.0 s_19/lab_char.h **************** */
 /*
  * The code herein is: Copyright Jerry Cooperstein, 2009
- * code herein is: Copyright Jerry Cooperstein, 2009
  *
  * This Copyright is retained for the purpose of protecting free
  * redistribution of source.
@@ -18,37 +17,33 @@
  *
  */
 /*
- * Seeking and the End of the Device.
- *
- * Keeping track of file position.
- *
- * Adapt one of the previous drivers to have the read and write
- * entries watch out for going off the end of the device.
- *
- * Implement a lseek entry point.  See the man page for lseek to see
- * how return values and error codes should be specified.
- *
- * For an extra exercise, unset the FMODE_LSEEK bit to make any
- * attempt to seek result in an error.
  @*/
+#ifndef _LAB_CHAR_H
+#define _LAB_CHAR_H
 
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
+#include <linux/sched.h>
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/cdev.h>
+#include <linux/device.h>
 
 #define MYDEV_NAME "mycdrv"
 
 static char *ramdisk;
 static size_t ramdisk_size = (16 * PAGE_SIZE);
 static dev_t first;
-static unsigned int count = 1;
-static int my_major = 700, my_minor = 0;
+static unsigned int count = 1;	/* number of dev_t needed */
 static struct cdev *my_cdev;
+static struct class *foo_class;
 
-static int mycdrv_open(struct inode *inode, struct file *file)
+static const struct file_operations mycdrv_fops;
+
+/* generic entry points */
+
+static inline int mycdrv_generic_open(struct inode *inode, struct file *file)
 {
 	static int counter = 0;
 	printk(KERN_INFO " attempting to open device: %s:\n", MYDEV_NAME);
@@ -61,26 +56,25 @@ static int mycdrv_open(struct inode *inode, struct file *file)
 	       counter);
 	printk(KERN_INFO "ref=%d\n", module_refcount(THIS_MODULE));
 
-	/* turn this on to inhibit seeking */
-	/* file->f_mode = file->f_mode & ~FMODE_LSEEK; */
-
 	return 0;
 }
 
-static int mycdrv_release(struct inode *inode, struct file *file)
+static inline int mycdrv_generic_release(struct inode *inode, struct file *file)
 {
-	printk(KERN_INFO " CLOSING device: %s:\n\n", MYDEV_NAME);
+	printk(KERN_INFO " closing character device: %s:\n\n", MYDEV_NAME);
 	return 0;
 }
 
-static ssize_t
-mycdrv_read(struct file *file, char __user * buf, size_t lbuf, loff_t * ppos)
+static inline ssize_t
+mycdrv_generic_read(struct file *file, char __user * buf, size_t lbuf,
+		    loff_t * ppos)
 {
 	int nbytes, maxbytes, bytes_to_do;
 	maxbytes = ramdisk_size - *ppos;
 	bytes_to_do = maxbytes > lbuf ? lbuf : maxbytes;
 	if (bytes_to_do == 0)
-		printk(KERN_INFO "Reached end of the device on a read");
+		printk(KERN_WARNING "Reached end of the device on a read");
+
 	nbytes = bytes_to_do - copy_to_user(buf, ramdisk + *ppos, bytes_to_do);
 	*ppos += nbytes;
 	printk(KERN_INFO "\n Leaving the   READ function, nbytes=%d, pos=%d\n",
@@ -88,15 +82,15 @@ mycdrv_read(struct file *file, char __user * buf, size_t lbuf, loff_t * ppos)
 	return nbytes;
 }
 
-static ssize_t
-mycdrv_write(struct file *file, const char __user * buf, size_t lbuf,
-	     loff_t * ppos)
+static inline ssize_t
+mycdrv_generic_write(struct file *file, const char __user * buf, size_t lbuf,
+		     loff_t * ppos)
 {
 	int nbytes, maxbytes, bytes_to_do;
 	maxbytes = ramdisk_size - *ppos;
 	bytes_to_do = maxbytes > lbuf ? lbuf : maxbytes;
 	if (bytes_to_do == 0)
-		printk(KERN_INFO "Reached end of the device on a write");
+		printk(KERN_WARNING "Reached end of the device on a write");
 	nbytes =
 	    bytes_to_do - copy_from_user(ramdisk + *ppos, buf, bytes_to_do);
 	*ppos += nbytes;
@@ -105,48 +99,34 @@ mycdrv_write(struct file *file, const char __user * buf, size_t lbuf,
 	return nbytes;
 }
 
-static loff_t mycdrv_lseek(struct file *file, loff_t offset, int orig)
+static inline loff_t mycdrv_generic_lseek(struct file *file, loff_t offset,
+					  int orig)
 {
 	loff_t testpos;
-
-	switch(orig) {
+	switch (orig) {
 	case SEEK_SET:
-	  testpos = offset;
-	  break;
+		testpos = offset;
+		break;
 	case SEEK_CUR:
-	  testpos = file->f_pos + offset;
-	  break;
+		testpos = file->f_pos + offset;
+		break;
 	case SEEK_END:
-	  testpos = file_count(file) + offset;
-	  break;
+		testpos = ramdisk_size + offset;
+		break;
 	default:
-	  testpos = -EINVAL;
-	  break;
+		return -EINVAL;
 	}
-
-	if (testpos > -1 && testpos < ramdisk_size)
-	  file->f_pos = testpos;
-	else
-	  testpos = -EINVAL;
-
+	testpos = testpos < ramdisk_size ? testpos : ramdisk_size;
+	testpos = testpos >= 0 ? testpos : 0;
+	file->f_pos = testpos;
 	printk(KERN_INFO "Seeking to pos=%ld\n", (long)testpos);
 	return testpos;
 }
 
-static const struct file_operations mycdrv_fops = {
-	.owner = THIS_MODULE,
-	.read = mycdrv_read,
-	.write = mycdrv_write,
-	.open = mycdrv_open,
-	.release = mycdrv_release,
-	.llseek = mycdrv_lseek
-};
-
-static int __init my_init(void)
+static inline int __init my_generic_init(void)
 {
-	first = MKDEV(my_major, my_minor);
-	if (register_chrdev_region(first, count, MYDEV_NAME) < 0) {
-		printk(KERN_ERR "failed to register character device region\n");
+	if (alloc_chrdev_region(&first, 0, count, MYDEV_NAME) < 0) {
+		printk(KERN_ERR "failed to allocate character device region\n");
 		return -1;
 	}
 	if (!(my_cdev = cdev_alloc())) {
@@ -155,6 +135,7 @@ static int __init my_init(void)
 		return -1;
 	}
 	cdev_init(my_cdev, &mycdrv_fops);
+
 	ramdisk = kmalloc(ramdisk_size, GFP_KERNEL);
 
 	if (cdev_add(my_cdev, first, count) < 0) {
@@ -165,13 +146,21 @@ static int __init my_init(void)
 		return -1;
 	}
 
+	foo_class = class_create(THIS_MODULE, "my_class");
+	device_create(foo_class, NULL, first, NULL, "%s", "mycdrv");
 	printk(KERN_INFO "\nSucceeded in registering character device %s\n",
 	       MYDEV_NAME);
+	printk(KERN_INFO "Major number = %d, Minor number = %d\n", MAJOR(first),
+	       MINOR(first));
+
 	return 0;
 }
 
-static void __exit my_exit(void)
+static inline void __exit my_generic_exit(void)
 {
+	device_destroy(foo_class, first);
+	class_destroy(foo_class);
+
 	if (my_cdev)
 		cdev_del(my_cdev);
 	unregister_chrdev_region(first, count);
@@ -179,9 +168,7 @@ static void __exit my_exit(void)
 	printk(KERN_INFO "\ndevice unregistered\n");
 }
 
-module_init(my_init);
-module_exit(my_exit);
-
-MODULE_AUTHOR("Ashley Manson");
-MODULE_DESCRIPTION("lab03_seek.c");
+MODULE_AUTHOR("Jerry Cooperstein");
+MODULE_DESCRIPTION("LDD:1.0 s_19/lab_char.h");
 MODULE_LICENSE("GPL v2");
+#endif

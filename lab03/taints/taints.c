@@ -64,6 +64,6 @@ static void __exit my_exit(void)
 module_init(my_init);
 module_exit(my_exit);
 
-MODULE_AUTHOR("Jerry Cooperstein");
-MODULE_DESCRIPTION("LDD:1.0 s_07/lab2_taints.c");
+MODULE_AUTHOR("Ashley Manson");
+MODULE_DESCRIPTION("lab03_taints.c");
 MODULE_LICENSE("GPL v2");

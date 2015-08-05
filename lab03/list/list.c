@@ -78,8 +78,6 @@ static void __exit my_exit(void)
 module_init(my_init);
 module_exit(my_exit);
 
-MODULE_AUTHOR("Dave Harris");
-/* many modifications by Jerry Cooperstein */
-/* implemented __init and __exit, Ashley Manson */
-MODULE_DESCRIPTION("LDD:1.0 s_07/lab1_list.c");
+MODULE_AUTHOR("Ashley Manson");
+MODULE_DESCRIPTION("lab03_list.c");
 MODULE_LICENSE("GPL v2");
