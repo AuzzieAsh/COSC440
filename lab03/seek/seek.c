@@ -117,7 +117,7 @@ static loff_t mycdrv_lseek(struct file *file, loff_t offset, int orig)
 	  testpos = file->f_pos + offset;
 	  break;
 	case SEEK_END:
-	  testpos = file_count(file) + offset;
+	  testpos = ramdisk_size + offset;
 	  break;
 	default:
 	  testpos = -EINVAL;
