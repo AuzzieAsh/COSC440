@@ -66,11 +66,12 @@ mycdrv_read(struct file *file, char __user * buf, size_t lbuf, loff_t * ppos)
 {
 	printk(KERN_INFO "process %i (%s) going to sleep\n", current->pid,
 	       current->comm);
-	/* COMPLETE ME */
-	/* Put the process to sleep until data_ready is set */
-	
+	wait_event_interruptible_exclusive(wq, atomic_read(&data_ready));
 	printk(KERN_INFO "process %i (%s) awakening\n", current->pid,
 	       current->comm);
+	if (signal_pending(current))
+	  return -ERESTARTSYS;
+	atomic_set(&data_ready, 0);
 	return mycdrv_generic_read(file, buf, lbuf, ppos);
 }
 
@@ -81,10 +82,8 @@ mycdrv_write(struct file *file, const char __user * buf, size_t lbuf,
 	int nbytes = mycdrv_generic_write(file, buf, lbuf, ppos);
 	printk(KERN_INFO "process %i (%s) awakening the readers...\n",
 	       current->pid, current->comm);
-        /* COMPLETE ME */
-
-	/* atomically set data_ready */
-        /* wake up the process */
+	atomic_set(&data_ready, 1);
+	wake_up_interruptible(&wq);
 	return nbytes;
 }
 
