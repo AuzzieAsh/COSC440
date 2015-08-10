@@ -1,4 +1,4 @@
-/* **************** LDD:1.0 s_12/lab1_mutex1.c **************** */
+/* **************** LDD:1.0 s_12/lab4_mutex1.c **************** */
 /*
  * The code herein is: Copyright Jerry Cooperstein, 2009
  *
@@ -44,6 +44,6 @@ static void __exit my_exit(void)
 module_init(my_init);
 module_exit(my_exit);
 
-MODULE_AUTHOR("Tatsuo Kawasaki");
-MODULE_DESCRIPTION("LDD:1.0 s_12/lab1_mutex1.c");
+MODULE_AUTHOR("Ashley Manson");
+MODULE_DESCRIPTION("LDD:1.0 s_12/lab4_mutex1.c");
 MODULE_LICENSE("GPL v2");

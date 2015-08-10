@@ -1,4 +1,4 @@
-/* **************** LDD:1.0 s_12/lab1_mutex2.c **************** */
+/* **************** LDD:1.0 s_12/lab4_mutex3.c **************** */
 /*
  * The code herein is: Copyright Jerry Cooperstein, 2009
  *
@@ -38,8 +38,10 @@ static int __init my_init(void)
 	printk(KERN_INFO "\n%s start count=%d:\n", modname,
 	       atomic_read(&my_mutex.count));
 
-	/* COMPLETE ME */
-	/* lock my_mutex */
+	if (mutex_lock_interruptible(&my_mutex)) {
+		printk(KERN_INFO "mutex unlocked - wake up \n");
+		return -1;
+	}
 
 	printk(KERN_INFO "\n%s mutex put mutex, count=%d:\n",
 	       modname, atomic_read(&my_mutex.count));
@@ -49,8 +51,7 @@ static int __init my_init(void)
 
 static void __exit my_exit(void)
 {
-	/* COMPLETE ME */
-	/* unlock my_mutex */
+	mutex_unlock(&my_mutex);
 
 	printk(KERN_INFO "\n%s mutex end count=%d:\n",
 	       modname, atomic_read(&my_mutex.count));
@@ -59,6 +60,6 @@ static void __exit my_exit(void)
 module_init(my_init);
 module_exit(my_exit);
 
-MODULE_AUTHOR("Tatsuo Kawasaki");
-MODULE_DESCRIPTION("LDD:1.0 s_12/lab1_mutex2.c");
+MODULE_AUTHOR("Ashley Manson");
+MODULE_DESCRIPTION("LDD:1.0 s_12/lab4_mutex3.c");
 MODULE_LICENSE("GPL v2");

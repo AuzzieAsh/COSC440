@@ -1,4 +1,4 @@
-/* **************** LDD:1.0 s_12/lab1_mutex2.c **************** */
+/* **************** LDD:1.0 s_12/lab4_mutex2.c **************** */
 /*
  * The code herein is: Copyright Jerry Cooperstein, 2009
  *
@@ -34,44 +34,32 @@ static char *modname = __stringify(KBUILD_BASENAME);
 
 static int __init my_init(void)
 {
-	printk(KERN_INFO "Trying to load module %s\n", modname);
-	printk(KERN_INFO "\n%s start count=%d:\n", modname,
-	       atomic_read(&my_mutex.count));
+    printk(KERN_INFO "Trying to load module %s\n", modname);
+    printk(KERN_INFO "\n%s start count=%d:\n", modname,
+           atomic_read(&my_mutex.count));
 
-	/* START SKELETON */
-	/* COMPLETE ME */
-	/* lock my_mutex */
-	/* END SKELETON */
-	/* START TRIM */
-	if (mutex_lock_interruptible(&my_mutex)) {
-		printk(KERN_INFO "mutex unlocked - wake up \n");
-		return -1;
-	}
-	/* END TRIM */
+    if (mutex_lock_interruptible(&my_mutex)) {
+        printk(KERN_INFO "failed to lock mutex %s\n", modname);
+        return -1;
+    }
 
-	printk(KERN_INFO "\n%s mutex put mutex, count=%d:\n",
-	       modname, atomic_read(&my_mutex.count));
+    printk(KERN_INFO "\n%s mutex put mutex, count=%d:\n",
+           modname, atomic_read(&my_mutex.count));
 
-	return 0;
+    return 0;
 }
 
 static void __exit my_exit(void)
 {
-	/* START SKELETON */
-	/* COMPLETE ME */
-	/* unlock my_mutex */
-	/* END SKELETON */
-	/* START TRIM */
-	mutex_unlock(&my_mutex);
-	/* END TRIM */
-
-	printk(KERN_INFO "\n%s mutex end count=%d:\n",
-	       modname, atomic_read(&my_mutex.count));
+    mutex_unlock(&my_mutex);
+ 
+   printk(KERN_INFO "\n%s mutex end count=%d:\n",
+           modname, atomic_read(&my_mutex.count));
 }
 
 module_init(my_init);
 module_exit(my_exit);
 
-MODULE_AUTHOR("Tatsuo Kawasaki");
-MODULE_DESCRIPTION("LDD:1.0 s_12/lab1_mutex2.c");
+MODULE_AUTHOR("Ashley Manson");
+MODULE_DESCRIPTION("LDD:1.0 s_12/lab4_mutex2.c");
 MODULE_LICENSE("GPL v2");
