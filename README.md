@@ -8,7 +8,11 @@ sudo rmmod [name]
 sudo chmod 666 /dev/[name]  
 sudo chown pi:pi /dev/[name]  
 
-## Find Major Number  
+## Read and Write to /procs  
+echo args >/procs/[name]  
+cat /proc/[name]  
+
+## Fine Major Number    
 cat /proc/devices | grep [name]  
 
 ## Print all Modules  
