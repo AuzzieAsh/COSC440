@@ -95,14 +95,22 @@ void free_memory_pages(void) {
  * mode, all memory pages will be freed.
  */
 int asgn1_open(struct inode *inode, struct file *filp) {
-  /* COMPLETE ME */
+  /* Finished? */
   /**
    * Increment process count, if exceeds max_nprocs, return -EBUSY
    *
    * if opened in write-only mode, free all memory pages
    *
    */
+    int num_procs = atomic_read(&asgn1_device.nprocs);
+    int max_num_procs = atomic_read(&asgn1_device.max_nprocs);
+    if (num_procs > max_num_procs)
+        return -EBUSY;
+    else
+        atomic_inc(&asgn1_device.nprocs);
 
+    if ((filp->f_flags & O_ACCMODE) == O_WRONLY)
+        free_memory_pages();
 
   return 0; /* success */
 }
@@ -171,7 +179,7 @@ static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd) {
 
     size_t buffer_size = asgn1_device.num_pages * PAGE_SIZE;
 
-    /* COMPLETE ME */
+    /* Finished. */
     /**
      * set testpos according to the command
      *
@@ -181,6 +189,28 @@ static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd) {
      *
      * set file->f_pos to testpos
      */
+    switch(cmd) {
+    case SEEK_SET:
+        testpos = offset;
+        break;
+    case SEEK_CUR:
+        testpos = file->f_pos + offset;
+        break;
+    case SEEK_END:
+        testpos = buffer_size + offset;
+        break;
+    default:
+        testpos = -EINVAL;
+        break;
+    }
+    
+    if (testpos > buffer_size)
+        testpos = buffer_size;
+    else if (testpos < 0)
+        testpos = 0;
+
+    file->f_pos = testpos;
+    
     printk (KERN_INFO "Seeking to pos=%ld\n", (long)testpos);
     return testpos;
 }

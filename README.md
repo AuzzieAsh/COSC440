@@ -12,7 +12,7 @@ sudo chown pi:pi /dev/[name]
 echo args >/procs/[name]  
 cat /proc/[name]  
 
-## Fine Major Number    
+## Find Major Number    
 cat /proc/devices | grep [name]  
 
 ## Print all Modules  
