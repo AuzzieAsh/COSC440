@@ -1,0 +1,30 @@
+void free_memory_pages(void);
+/**
+ * Loop through the entire page list {
+ *   if (node has a page) {
+ *     free the page
+ *   }
+ *   remove the node from the page list
+ *   free the node
+ * }
+ * reset device data size, and num_pages
+ */
+ 
+int asgn1_open(struct inode *inode, struct file *filp);
+/**
+ * Increment process count, if exceeds max_nprocs, return -EBUSY
+ * if opened in write-only mode, free all memory pages
+ */
+
+int asgn1_release (struct inode *inode, struct file *filp);
+/**
+ * decrement process count
+ */
+ 
+static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd);
+/**
+ * set testpos according to the command
+ * if testpos larger than buffer_size, set testpos to buffer_size
+ * if testpos smaller than 0, set testpos to 0
+ * set file->f_pos to testpos
+ */

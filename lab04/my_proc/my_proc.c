@@ -30,7 +30,7 @@ my_proc_write(struct file *file, const char __user * buffer, unsigned long count
 		return -EFAULT;
 	}
 	if (3 != sscanf(str, "%d %d %d", &a, &b, &c)) {
-        printk(KERN_ERR "Nope, you gotta give me three integers\n love %s", NODE);
+        printk(KERN_ERR "Nope, you gotta give me three integers\n love %s\n", NODE);
         return -1;
     }
 	printk(KERN_INFO "a, b and c have been set to %d %d %d\n", a,b,c);
