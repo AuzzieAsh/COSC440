@@ -86,7 +86,6 @@ void free_memory_pages(void) {
     asgn1_device.num_pages = 0;
 }
 
-
 /**
  * This function opens the virtual disk, if it is opened in the write-only
  * mode, all memory pages will be freed.
@@ -103,6 +102,7 @@ int asgn1_open(struct inode *inode, struct file *filp) {
     
     printk(KERN_INFO "Process count incremented\n");
 
+    // If opened in write-only
     if ((filp->f_flags & O_ACCMODE) == O_WRONLY)
         free_memory_pages();
 
@@ -127,8 +127,7 @@ int asgn1_release (struct inode *inode, struct file *filp) {
 /**
  * This function reads contents of the virtual disk and writes to the user 
  */
-ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count,
-                   loff_t *f_pos) {
+ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos) {
 
     size_t size_read = 0;     /* size read from virtual disk in this function */
     size_t begin_offset = *f_pos % PAGE_SIZE; /* the offset from the beginning of a page to
@@ -143,7 +142,7 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count,
     struct list_head *ptr = asgn1_device.mem_list.next;
     page_node *curr;
 
-    /* COMPLETE ME */
+    /* Finished? */
     /**
      * check f_pos, if beyond data_size, return 0
      * 
@@ -165,17 +164,16 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count,
     
     list_for_each_entry(curr, ptr, list) {
         if (curr_page_no >= begin_page_no) {
-
-            do {
+            
+            while (size_to_be_read > 0) {
                 size_to_be_read = copy_to_user(buf, page_address(curr->page) + begin_offset, size_to_be_read);
-                curr_size_read = count - size_to_be_read;
-            } while (size_to_be_read > 0);
-        
-            size_read += size_to_be_read;
-            if (size_read >= size_to_be_read)
-                break;
-            begin_page_no++;
-            begin_offset = 0;
+                curr_size_read = count - size_to_be_read;        
+                size_read += size_to_be_read;
+                if (size_read >= size_to_be_read)
+                    break;
+                begin_page_no++;
+                begin_offset = 0;
+            }
         }        
         curr_page_no++;
     }
@@ -227,20 +225,20 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count,
 
     size_t orig_f_pos = *f_pos;  /* the original file position */
     size_t size_written = 0;  /* size written to virtual disk in this function */
-    size_t begin_offset;      /* the offset from the beginning of a page to
+    size_t begin_offset = *f_pos % PAGE_SIZE; /* the offset from the beginning of a page to
                                  start writing */
     int begin_page_no = *f_pos / PAGE_SIZE;  /* the first page this finction
                                                 should start writing to */
 
     int curr_page_no = 0;     /* the current page number */
     size_t curr_size_written; /* size written to virtual disk in this round */
-    size_t size_to_be_written;  /* size to be read in the current round in 
+    size_t size_to_be_written = count;  /* size to be read in the current round in 
                                    while loop */
 
     struct list_head *ptr = asgn1_device.mem_list.next;
     page_node *curr;
 
-    /* COMPLETE ME */
+    /* Finished? */
     /**
      * Traverse the list until the first page reached, and add nodes if necessary
      *
@@ -248,7 +246,28 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count,
      *   when copy_from_user() writes less than the amount you requested.
      *   a while loop / do-while loop is recommended to handle this situation. 
      */
+    // add pages if necessary
+    while (asgn1_device.num_pages * PAGE_SIZE < *f_pos + count) {
+        curr = kmalloc(sizeof(page_node), GFP_KERNEL);
+        curr->page = alloc_page(GFP_KERNEL);
+        list_add_tail(&curr->list, ptr);
+        asgn1_device.num_pages++;
+    }
 
+    list_for_each_entry(curr, ptr, list) {
+        if (curr_page_no >= begin_page_no) {
+            while (size_to_be_written > 0) {
+                size_to_be_written = copy_from_user(page_address(curr->page) + begin_offset, buf, size_to_be_written);
+                curr_size_written = count - size_to_be_written;
+                size_written += size_to_be_written;
+                if (size_written >= size_to_be_written)
+                    break;
+                begin_page_no++;
+                begin_offset = 0;
+            }
+        }
+        curr_page_no++;
+    }
 
     asgn1_device.data_size = max(asgn1_device.data_size,
                                  orig_f_pos + size_written);
