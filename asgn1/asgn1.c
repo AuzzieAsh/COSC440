@@ -143,22 +143,7 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     page_node *curr;
 
     /* Finished? */
-    /**
-     * check f_pos, if beyond data_size, return 0
-     * 
-     * Traverse the list, once the first requested page is reached,
-     *   - use copy_to_user to copy the data to the user-space buf page by page
-     *   - you also need to work out the start / end offset within a page
-     *   - Also needs to handle the situation where copy_to_user copy less
-     *       data than requested, and
-     *       copy_to_user should be called again to copy the rest of the
-     *       unprocessed data, and the second and subsequent calls still
-     *       need to check whether copy_to_user copies all data requested.
-     *       This is best done by a while / do-while loop.
-     *
-     * if end of data area of ramdisk reached before copying the requested
-     *   return the size copied to the user space so far
-     */
+
     if (*f_pos > asgn1_device.data_size)
         return 0;
     
@@ -220,8 +205,7 @@ static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd) {
  * This function writes from the user buffer to the virtual disk of this
  * module
  */
-ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count,
-                    loff_t *f_pos) {
+ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos) {
 
     size_t orig_f_pos = *f_pos;  /* the original file position */
     size_t size_written = 0;  /* size written to virtual disk in this function */
@@ -239,13 +223,7 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count,
     page_node *curr;
 
     /* Finished? */
-    /**
-     * Traverse the list until the first page reached, and add nodes if necessary
-     *
-     * Then write the data page by page, remember to handle the situation
-     *   when copy_from_user() writes less than the amount you requested.
-     *   a while loop / do-while loop is recommended to handle this situation. 
-     */
+
     // add pages if necessary
     while (asgn1_device.num_pages * PAGE_SIZE < *f_pos + count) {
         curr = kmalloc(sizeof(page_node), GFP_KERNEL);
