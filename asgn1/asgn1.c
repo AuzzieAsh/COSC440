@@ -37,7 +37,6 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Ashley Manson");
 MODULE_DESCRIPTION("COSC440 asgn1");
 
-
 /**
  * The node structure for the memory page linked list.
  */ 
@@ -61,11 +60,9 @@ typedef struct asgn1_dev_t {
 
 asgn1_dev asgn1_device;
 
-
 int asgn1_major = 0;                      /* major number of module */  
 int asgn1_minor = 0;                      /* minor number of module */
 int asgn1_dev_count = 1;                  /* number of devices */
-
 
 /**
  * This function frees all memory pages held by the module.
@@ -109,7 +106,6 @@ int asgn1_open(struct inode *inode, struct file *filp) {
     return 0;
 }
 
-
 /**
  * This function releases the virtual disk, but nothing needs to be done
  * in this case. 
@@ -122,7 +118,6 @@ int asgn1_release (struct inode *inode, struct file *filp) {
 
     return 0;
 }
-
 
 /**
  * This function reads contents of the virtual disk and writes to the user 
@@ -165,9 +160,6 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     return size_read;
 }
 
-
-
-
 static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd) {
     /* Finished. */
     
@@ -199,7 +191,6 @@ static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd) {
 
     return testpos;
 }
-
 
 /**
  * This function writes from the user buffer to the virtual disk of this
@@ -272,17 +263,29 @@ long asgn1_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
      set max_nprocs accordingly, don't forget to check validity of the 
      value before setting max_nprocs
     */
-
-    return -ENOTTY;
+    if (_IOC_TYPE(cmd) != TEM_SET_NPROC)
+        return -EINVAL;
+    /*
+    switch(cmd) {
+    case SET_NPROC_OP:
+        result = access_ok(VERIFY_READ, filp->f_pos, arg);
+        if (result)
+            get_user(&new_nprocs, filp->f_pos);
+        else
+            return -EINVAL;
+        atomic_set(&asgn1_device.max_nprocs, new_nprocs);
+        return 0;
+    default:
+        return -ENOTTY;
+    }*/
+    return 0;
 }
-
 
 /**
  * Displays information about current status of the module,
  * which helps debugging.
  */
-int asgn1_read_procmem(char *buf, char **start, off_t offset, int count,
-                       int *eof, void *data) {
+int asgn1_read_procmem(char *buf, char **start, off_t offset, int count, int *eof, void *data) {
 
     /* stub */
     int result;
@@ -292,9 +295,9 @@ int asgn1_read_procmem(char *buf, char **start, off_t offset, int count,
      * use snprintf to print some info to buf, up to size count
      * set eof
      */
+    result = snprintf(&buf, count, data);
     return result;
 }
-
 
 static int asgn1_mmap (struct file *filp, struct vm_area_struct *vma) {
 
@@ -316,7 +319,6 @@ static int asgn1_mmap (struct file *filp, struct vm_area_struct *vma) {
     return 0;
 }
 
-
 struct file_operations asgn1_fops = {
     .owner = THIS_MODULE,
     .read = asgn1_read,
@@ -327,7 +329,6 @@ struct file_operations asgn1_fops = {
     .release = asgn1_release,
     .llseek = asgn1_lseek
 };
-
 
 /**
  * Initialise the module and create the master device
@@ -373,7 +374,6 @@ fail_device:
     return result;
 }
 
-
 /**
  * Finalise the module
  */
@@ -391,8 +391,5 @@ void __exit asgn1_exit_module(void) {
     printk(KERN_WARNING "Good bye from %s\n", MYDEV_NAME);
 }
 
-
 module_init(asgn1_init_module);
 module_exit(asgn1_exit_module);
-
-
