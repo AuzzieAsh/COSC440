@@ -1,7 +1,7 @@
 /**
  * File: asgn1.c
  * Date: 13/03/2011
- * Modified: 30/07/2015
+ * Modified: 01/09/2015
  * Author: Ashley Manson 
  * Version: 0.1
  *
@@ -71,9 +71,11 @@ static struct proc_dir_entry *asgn1_proc;
  */
 void free_memory_pages(void) {
     /* Finished? */
-
+  
     page_node *curr, *tmp;
 
+    printk(KERN_INFO "asgn1_ free_memory_pages called\n");
+    
     list_for_each_entry_safe(curr, tmp, &asgn1_device.mem_list, list) {
         if (curr->page != NULL) {
             __free_page(curr->page);
@@ -83,6 +85,8 @@ void free_memory_pages(void) {
     }
     asgn1_device.data_size = 0;
     asgn1_device.num_pages = 0;
+    
+    printk(KERN_INFO "asgn1_ free_memory_pages finished\n");
 }
 
 /**
@@ -94,16 +98,21 @@ int asgn1_open(struct inode *inode, struct file *filp) {
 
     int num_procs = atomic_read(&asgn1_device.nprocs);
     int max_num_procs = atomic_read(&asgn1_device.max_nprocs);
+
+    printk(KERN_INFO "asgn1_open called\n");
+    
     if (num_procs > max_num_procs)
         return -EBUSY;
     else
         atomic_inc(&asgn1_device.nprocs);
     
-    printk(KERN_INFO "Process count incremented\n");
+    printk(KERN_INFO "asgn1_ Process count incremented\n");
 
     // If opened in write-only
     if ((filp->f_flags & O_ACCMODE) == O_WRONLY)
         free_memory_pages();
+    
+    printk(KERN_INFO "asgn1_open finished\n");
 
     return 0;
 }
@@ -116,7 +125,7 @@ int asgn1_release (struct inode *inode, struct file *filp) {
     /* Finished. */
 
     atomic_dec(&asgn1_device.nprocs);
-    printk(KERN_INFO "Process count decremented\n");
+    printk(KERN_INFO "asgn1_ Process count decremented\n");
 
     return 0;
 }
@@ -141,6 +150,8 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
 
     /* Finished? */
 
+    printk(KERN_INFO "asgn1_read called\n");
+    
     if (*f_pos > asgn1_device.data_size)
         return 0;
     
@@ -159,6 +170,8 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
         }        
         curr_page_no++;
     }
+    printk(KERN_INFO "asgn1_read finished\n");
+    
     return size_read;
 }
 
@@ -217,6 +230,8 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
 
     /* Finished? */
 
+    printk(KERN_INFO "asgn1_write called\n");
+    
     // add pages if necessary
     while (asgn1_device.num_pages * PAGE_SIZE < *f_pos + count) {
         curr = kmalloc(sizeof(page_node), GFP_KERNEL);
@@ -242,6 +257,9 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
 
     asgn1_device.data_size = max(asgn1_device.data_size,
                                  orig_f_pos + size_written);
+
+    printk(KERN_INFO "asgn1_write finished\n");
+    
     return size_written;
 }
 
@@ -262,9 +280,9 @@ long asgn1_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
      * check whether cmd is for our device, if not for us, return -EINVAL 
      *
      * get command, and if command is SET_NPROC_OP, then get the data, and
-     set max_nprocs accordingly, don't forget to check validity of the 
-     value before setting max_nprocs
-    */
+     * set max_nprocs accordingly, don't forget to check validity of the 
+     * value before setting max_nprocs
+     */
     if (_IOC_TYPE(cmd) != TEM_SET_NPROC)
         return -EINVAL;
     /*
@@ -351,7 +369,6 @@ struct file_operations asgn1_fops = {
 int __init asgn1_init_module(void) {
 
     int result; 
-    page_node *curr, *tmp;
 
     /* Finished? */
     /**
@@ -371,7 +388,7 @@ int __init asgn1_init_module(void) {
     asgn1_device.cdev->owner = asgn1_fops.owner;
     result = cdev_add(asgn1_device.cdev, asgn1_device.dev, asgn1_dev_count);
     INIT_LIST_HEAD(&asgn1_device.mem_list);
-    asgn1_proc = create_proc_entry(MYDEV_NAME, 777, NULL);
+    asgn1_proc = create_proc_entry(MYDEV_NAME, 666, NULL);
     if (!asgn1_proc) {
         printk(KERN_INFO "Failed to create proc entry %s\n", MYDEV_NAME);
         return -ENOMEM;
@@ -400,13 +417,7 @@ fail_device:
 
     /* Finished? */
     /* PLEASE PUT YOUR CLEANUP CODE HERE, IN REVERSE ORDER OF ALLOCATION */
-    list_for_each_entry_safe_reverse(curr, tmp, &asgn1_device.mem_list, list) {
-        if (curr->page != NULL) {
-            __free_page(curr->page);
-        }
-        list_del(&curr->list);
-        kfree(curr);
-    }
+    free_memory_pages();
 
     if (asgn1_proc)
         remove_proc_entry(MYDEV_NAME, NULL);
@@ -419,8 +430,6 @@ fail_device:
  */
 void __exit asgn1_exit_module(void) {
 
-    page_node *curr, *tmp;
-
     device_destroy(asgn1_device.class, asgn1_device.dev);
     class_destroy(asgn1_device.class);
     printk(KERN_WARNING "cleaned up udev entry\n");
@@ -430,14 +439,7 @@ void __exit asgn1_exit_module(void) {
      * free all pages in the page list 
      * cleanup in reverse order
      */
-    list_for_each_entry_safe_reverse(curr, tmp, &asgn1_device.mem_list, list) {
-        if (curr->page != NULL) {
-            __free_page(curr->page);
-        }
-        list_del(&curr->list);
-        kfree(curr);
-    }
-
+    free_memory_pages();
     if (asgn1_proc)
         remove_proc_entry(MYDEV_NAME, NULL);
 
