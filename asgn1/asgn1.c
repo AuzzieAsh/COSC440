@@ -64,6 +64,8 @@ int asgn1_major = 0;                      /* major number of module */
 int asgn1_minor = 0;                      /* minor number of module */
 int asgn1_dev_count = 1;                  /* number of devices */
 
+static struct proc_dir_entry *asgn1_proc;
+
 /**
  * This function frees all memory pages held by the module.
  */
@@ -295,7 +297,8 @@ int asgn1_read_procmem(char *buf, char **start, off_t offset, int count, int *eo
      * use snprintf to print some info to buf, up to size count
      * set eof
      */
-    result = snprintf(&buf, count, data);
+    *eof = 1;
+    result = snprintf(buf, count, "%s\n", "use snprintf to print some info to buf, up to size count");
     return result;
 }
 
@@ -316,6 +319,18 @@ static int asgn1_mmap (struct file *filp, struct vm_area_struct *vma) {
      *   reached, add each page with remap_pfn_range one by one
      *   up to the last requested page
      */
+    if (offset + len > ramdisk_size)
+        return -EINVAL;
+    /*  
+    list_for_each(curr, list) {
+        if (index >= offset)
+            break;
+        index++;
+    }
+    */
+    if (remap_pfn_range(vma, vma->vm_start, offset, len, vma->vm_page_prot))
+        return -EAGAIN;
+
     return 0;
 }
 
@@ -336,8 +351,9 @@ struct file_operations asgn1_fops = {
 int __init asgn1_init_module(void) {
 
     int result; 
+    page_node *curr, *tmp;
 
-    /* COMPLETE ME */
+    /* Finished? */
     /**
      * set nprocs and max_nprocs of the device
      *
@@ -347,6 +363,20 @@ int __init asgn1_init_module(void) {
      * initialize the page list
      * create proc entries
      */
+    atomic_set(&asgn1_device.nprocs, 0);
+    atomic_set(&asgn1_device.max_nprocs, 1);
+    result = alloc_chrdev_region(&asgn1_device.dev, asgn1_minor, asgn1_dev_count, MYDEV_NAME);
+    asgn1_device.cdev = cdev_alloc();
+    asgn1_device.cdev->ops = &asgn1_fops;
+    asgn1_device.cdev->owner = asgn1_fops.owner;
+    result = cdev_add(asgn1_device.cdev, asgn1_device.dev, asgn1_dev_count);
+    INIT_LIST_HEAD(&asgn1_device.mem_list);
+    asgn1_proc = create_proc_entry(MYDEV_NAME, 777, NULL);
+    if (!asgn1_proc) {
+        printk(KERN_INFO "Failed to create proc entry %s\n", MYDEV_NAME);
+        return -ENOMEM;
+    }
+    asgn1_proc->read_proc = asgn1_read_procmem;
 
     asgn1_device.class = class_create(THIS_MODULE, MYDEV_NAME);
     if (IS_ERR(asgn1_device.class)) {
@@ -368,8 +398,18 @@ int __init asgn1_init_module(void) {
 fail_device:
     class_destroy(asgn1_device.class);
 
-    /* COMPLETE ME */
+    /* Finished? */
     /* PLEASE PUT YOUR CLEANUP CODE HERE, IN REVERSE ORDER OF ALLOCATION */
+    list_for_each_entry_safe_reverse(curr, tmp, &asgn1_device.mem_list, list) {
+        if (curr->page != NULL) {
+            __free_page(curr->page);
+        }
+        list_del(&curr->list);
+        kfree(curr);
+    }
+
+    if (asgn1_proc)
+        remove_proc_entry(MYDEV_NAME, NULL);
 
     return result;
 }
@@ -379,15 +419,28 @@ fail_device:
  */
 void __exit asgn1_exit_module(void) {
 
+    page_node *curr, *tmp;
+
     device_destroy(asgn1_device.class, asgn1_device.dev);
     class_destroy(asgn1_device.class);
     printk(KERN_WARNING "cleaned up udev entry\n");
 
-    /* COMPLETE ME */
+    /* Finished? */
     /**
      * free all pages in the page list 
      * cleanup in reverse order
      */
+    list_for_each_entry_safe_reverse(curr, tmp, &asgn1_device.mem_list, list) {
+        if (curr->page != NULL) {
+            __free_page(curr->page);
+        }
+        list_del(&curr->list);
+        kfree(curr);
+    }
+
+    if (asgn1_proc)
+        remove_proc_entry(MYDEV_NAME, NULL);
+
     printk(KERN_WARNING "Good bye from %s\n", MYDEV_NAME);
 }
 
