@@ -46,23 +46,23 @@ typedef struct page_node_rec {
 } page_node;
 
 typedef struct asgn1_dev_t {
-    dev_t dev;            /* the device */
+    dev_t dev;                /* the device */
     struct cdev *cdev;
     struct list_head mem_list; 
-    int num_pages;        /* number of memory pages this module currently holds */
-    size_t data_size;     /* total data size in this module */
-    atomic_t nprocs;      /* number of processes accessing this device */ 
-    atomic_t max_nprocs;  /* max number of processes accessing this device */
-    struct kmem_cache *cache;      /* cache memory */
-    struct class *class;     /* the udev class */
-    struct device *device;   /* the udev device node */
+    int num_pages;            /* number of memory pages this module currently holds */
+    size_t data_size;         /* total data size in this module */
+    atomic_t nprocs;          /* number of processes accessing this device */ 
+    atomic_t max_nprocs;      /* max number of processes accessing this device */
+    struct kmem_cache *cache; /* cache memory */
+    struct class *class;      /* the udev class */
+    struct device *device;    /* the udev device node */
 } asgn1_dev;
 
 asgn1_dev asgn1_device;
 
-int asgn1_major = 0;                      /* major number of module */  
-int asgn1_minor = 0;                      /* minor number of module */
-int asgn1_dev_count = 1;                  /* number of devices */
+int asgn1_major = 0;     /* major number of module */  
+int asgn1_minor = 0;     /* minor number of module */
+int asgn1_dev_count = 1; /* number of devices */
 
 static struct proc_dir_entry *asgn1_proc;
 
@@ -70,23 +70,25 @@ static struct proc_dir_entry *asgn1_proc;
  * This function frees all memory pages held by the module.
  */
 void free_memory_pages(void) {
-    /* Finished? */
+    /* Finished. */
   
     page_node *curr, *tmp;
 
-    printk(KERN_INFO "asgn1_ free_memory_pages called\n");
+    printk(KERN_INFO "asgn1: free_memory_pages called\n");
     
     list_for_each_entry_safe(curr, tmp, &asgn1_device.mem_list, list) {
-        if (curr->page != NULL) {
-            __free_page(curr->page);
+        if (curr != NULL) {
+            if (curr->page != NULL) {
+                __free_page(curr->page);
+            }
+            list_del(&curr->list);
+            kfree(curr);
         }
-        list_del(&curr->list);
-        kfree(curr);
     }
     asgn1_device.data_size = 0;
     asgn1_device.num_pages = 0;
     
-    printk(KERN_INFO "asgn1_ free_memory_pages finished\n");
+    printk(KERN_INFO "asgn1: free_memory_pages finished\n");
 }
 
 /**
@@ -94,25 +96,25 @@ void free_memory_pages(void) {
  * mode, all memory pages will be freed.
  */
 int asgn1_open(struct inode *inode, struct file *filp) {
-    /* Finished? */
+    /* Finished. */
 
     int num_procs = atomic_read(&asgn1_device.nprocs);
     int max_num_procs = atomic_read(&asgn1_device.max_nprocs);
 
-    printk(KERN_INFO "asgn1_open called\n");
+    printk(KERN_INFO "asgn1: asgn1_open called\n");
+    printk(KERN_INFO "asgn1: nprocs = %d, max_nprocs = %d\n", num_procs, max_num_procs);
     
     if (num_procs > max_num_procs)
         return -EBUSY;
-    else
-        atomic_inc(&asgn1_device.nprocs);
     
-    printk(KERN_INFO "asgn1_ Process count incremented\n");
+    atomic_inc(&asgn1_device.nprocs);
+    printk(KERN_INFO "asgn1: Process count incremented to %d\n", atomic_read(&asgn1_device.nprocs));
 
     // If opened in write-only
     if ((filp->f_flags & O_ACCMODE) == O_WRONLY)
         free_memory_pages();
     
-    printk(KERN_INFO "asgn1_open finished\n");
+    printk(KERN_INFO "asgn1: asgn1_open finished\n");
 
     return 0;
 }
@@ -124,8 +126,12 @@ int asgn1_open(struct inode *inode, struct file *filp) {
 int asgn1_release (struct inode *inode, struct file *filp) {
     /* Finished. */
 
+    printk(KERN_INFO "asgn1: asgn1_release called\n");
+    
     atomic_dec(&asgn1_device.nprocs);
-    printk(KERN_INFO "asgn1_ Process count decremented\n");
+    printk(KERN_INFO "asgn1: Process count decremented to %d\n", atomic_read(&asgn1_device.nprocs));
+
+    printk(KERN_INFO "asgn1: asgn1_release finished\n");
 
     return 0;
 }
@@ -135,29 +141,28 @@ int asgn1_release (struct inode *inode, struct file *filp) {
  */
 ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos) {
 
-    size_t size_read = 0;     /* size read from virtual disk in this function */
-    size_t begin_offset = *f_pos % PAGE_SIZE; /* the offset from the beginning of a page to
-                                                 start reading */
-    int begin_page_no = *f_pos / PAGE_SIZE; /* the first page which contains
-                                               the requested data */
-    int curr_page_no = 0;     /* the current page number */
-    size_t curr_size_read;    /* size read from the virtual disk in this round */
-    size_t size_to_be_read = count; /* size to be read in the current round in 
-                                       while loop */
+    size_t size_read = 0;                     /* size read from virtual disk in this function */
+    size_t begin_offset = *f_pos % PAGE_SIZE; /* the offset from the beginning of a page to start reading */
+    int begin_page_no = *f_pos / PAGE_SIZE;   /* the first page which contains the requested data */
+    int curr_page_no = 0;                     /* the current page number */
+    size_t curr_size_read;                    /* size read from the virtual disk in this round */
+    size_t size_to_be_read = count;           /* size to be read in the current round in while loop */
 
     struct list_head *ptr = asgn1_device.mem_list.next;
     page_node *curr;
 
     /* Finished? */
 
-    printk(KERN_INFO "asgn1_read called\n");
+    printk(KERN_INFO "asgn1: asgn1_read called\n");
     
     if (*f_pos > asgn1_device.data_size)
         return 0;
     
     list_for_each_entry(curr, ptr, list) {
-        if (curr_page_no >= begin_page_no) {
-            
+        if (curr_page_no == begin_page_no) {
+
+            printk(KERN_INFO "asgn1: Reading from page %d\n", curr_page_no);
+
             while (size_to_be_read > 0) {
                 size_to_be_read = copy_to_user(buf, page_address(curr->page) + begin_offset, size_to_be_read);
                 curr_size_read = count - size_to_be_read;        
@@ -170,7 +175,7 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
         }        
         curr_page_no++;
     }
-    printk(KERN_INFO "asgn1_read finished\n");
+    printk(KERN_INFO "asgn1: asgn1_read finished\n");
     
     return size_read;
 }
@@ -202,7 +207,7 @@ static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd) {
 
     file->f_pos = testpos;
     
-    printk (KERN_INFO "Seeking to pos=%ld\n", (long)testpos);
+    printk (KERN_INFO "asgn1: Seeking to pos=%ld\n", (long)testpos);
 
     return testpos;
 }
@@ -213,52 +218,66 @@ static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd) {
  */
 ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos) {
 
-    size_t orig_f_pos = *f_pos;  /* the original file position */
-    size_t size_written = 0;  /* size written to virtual disk in this function */
-    size_t begin_offset = *f_pos % PAGE_SIZE; /* the offset from the beginning of a page to
-                                 start writing */
-    int begin_page_no = *f_pos / PAGE_SIZE;  /* the first page this finction
-                                                should start writing to */
-
-    int curr_page_no = 0;     /* the current page number */
-    size_t curr_size_written; /* size written to virtual disk in this round */
-    size_t size_to_be_written = count;  /* size to be read in the current round in 
-                                   while loop */
-
+    size_t orig_f_pos = *f_pos;               /* the original file position */
+    size_t size_written = 0;                  /* size written to virtual disk in this function */
+    size_t begin_offset = *f_pos % PAGE_SIZE; /* the offset from the beginning of a page to start writing */
+    int begin_page_no = *f_pos / PAGE_SIZE;   /* the first page this function should start writing to */
+    int curr_page_no = 0;                     /* the current page number */
+    size_t curr_size_written;                 /* size written to virtual disk in this round */
+    size_t size_to_be_written;                /* size to be read in the current round in while loop */
+    size_t size_to_copy = count;              /* size left to copy over from user space */
+    
     struct list_head *ptr = asgn1_device.mem_list.next;
     page_node *curr;
 
     /* Finished? */
 
-    printk(KERN_INFO "asgn1_write called\n");
+    printk(KERN_INFO "asgn1: asgn1_write called\n");
     
     // add pages if necessary
     while (asgn1_device.num_pages * PAGE_SIZE < *f_pos + count) {
         curr = kmalloc(sizeof(page_node), GFP_KERNEL);
-        curr->page = alloc_page(GFP_KERNEL);
-        list_add_tail(&curr->list, ptr);
-        asgn1_device.num_pages++;
+        if (curr != NULL) {
+            curr->page = alloc_page(GFP_KERNEL);
+            list_add_tail(&curr->list, ptr);
+            asgn1_device.num_pages++;
+            printk(KERN_INFO "asgn1: Added pages to list: %d\n", asgn1_device.num_pages);
+        }
+        else {
+            printk(KERN_INFO "asgn1: Couldn't add pages to list!\n");
+            return size_written;
+        }
     }
 
     list_for_each_entry(curr, ptr, list) {
-        if (curr_page_no >= begin_page_no) {
-            while (size_to_be_written > 0) {
-                size_to_be_written = copy_from_user(page_address(curr->page) + begin_offset, buf, size_to_be_written);
-                curr_size_written = count - size_to_be_written;
-                size_written += size_to_be_written;
-                if (size_written >= size_to_be_written)
-                    break;
-                begin_page_no++;
-                begin_offset = 0;
+        // if we have reached the starting page to write
+        if (curr_page_no++ == begin_page_no) {
+            printk(KERN_INFO "asgn1: Writing to page %d with size %d\n", curr_page_no, size_to_copy);
+            size_to_be_written = copy_from_user(page_address(curr->page) + begin_offset, buf, size_to_copy);
+            printk(KERN_INFO "asgn1: Size left to write = %d\n", size_to_be_written);
+            curr_size_written = size_to_copy - size_to_be_written;
+            size_to_copy = size_to_be_written;
+            size_written += curr_size_written;
+            // if still more to write
+            if (size_to_be_written > 0) {
+                begin_page_no++;  // go to next page
+                begin_offset = 0; // offset at start of page
+                printk(KERN_INFO "asgn1: Write to the next page %d\n", begin_page_no);
+                // may need to add another page here
+            }
+            // nothing else to write
+            else {
+                printk(KERN_INFO "asgn1: Nothing left to write\n");
+                break;
             }
         }
-        curr_page_no++;
     }
 
-    asgn1_device.data_size = max(asgn1_device.data_size,
-                                 orig_f_pos + size_written);
-
-    printk(KERN_INFO "asgn1_write finished\n");
+    printk(KERN_INFO "asgn1: size_written = %d\n", size_written);
+    
+    asgn1_device.data_size = max(asgn1_device.data_size, orig_f_pos + size_written);
+    
+    printk(KERN_INFO "asgn1: asgn1_write finished\n");
     
     return size_written;
 }
@@ -390,7 +409,7 @@ int __init asgn1_init_module(void) {
     INIT_LIST_HEAD(&asgn1_device.mem_list);
     asgn1_proc = create_proc_entry(MYDEV_NAME, 666, NULL);
     if (!asgn1_proc) {
-        printk(KERN_INFO "Failed to create proc entry %s\n", MYDEV_NAME);
+        printk(KERN_INFO "asgn1: Failed to create proc entry %s\n", MYDEV_NAME);
         return -ENOMEM;
     }
     asgn1_proc->read_proc = asgn1_read_procmem;
@@ -402,13 +421,13 @@ int __init asgn1_init_module(void) {
     asgn1_device.device = device_create(asgn1_device.class, NULL, 
                                         asgn1_device.dev, "%s", MYDEV_NAME);
     if (IS_ERR(asgn1_device.device)) {
-        printk(KERN_WARNING "%s: can't create udev device\n", MYDEV_NAME);
+        printk(KERN_WARNING "asgn1: %s: can't create udev device\n", MYDEV_NAME);
         result = -ENOMEM;
         goto fail_device;
     }
 
-    printk(KERN_WARNING "set up udev entry\n");
-    printk(KERN_WARNING "Hello world from %s\n", MYDEV_NAME);
+    printk(KERN_WARNING "asgn1: set up udev entry\n");
+    printk(KERN_WARNING "asgn1: Hello world from %s\n", MYDEV_NAME);
     return 0;
 
     /* cleanup code called when any of the initialization steps fail */
@@ -432,7 +451,7 @@ void __exit asgn1_exit_module(void) {
 
     device_destroy(asgn1_device.class, asgn1_device.dev);
     class_destroy(asgn1_device.class);
-    printk(KERN_WARNING "cleaned up udev entry\n");
+    printk(KERN_WARNING "asgn1: cleaned up udev entry\n");
 
     /* Finished? */
     /**
@@ -443,7 +462,7 @@ void __exit asgn1_exit_module(void) {
     if (asgn1_proc)
         remove_proc_entry(MYDEV_NAME, NULL);
 
-    printk(KERN_WARNING "Good bye from %s\n", MYDEV_NAME);
+    printk(KERN_WARNING "asgn1: Good bye from %s\n", MYDEV_NAME);
 }
 
 module_init(asgn1_init_module);
