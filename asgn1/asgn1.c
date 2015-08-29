@@ -173,7 +173,7 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
             size_to_read = size_to_be_read;
             size_read += curr_size_read;
             // if still more to read
-            if (size_to_be_read > 0) {
+            if (size_to_read != size_read) {
                 begin_page_no++;  // go to next page
                 begin_offset = 0; // offset at start of page
                 printk(KERN_INFO "asgn1: Read from the next page %d\n", begin_page_no);
@@ -248,10 +248,10 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
     /* Finished? */
 
     printk(KERN_INFO "asgn1: asgn1_write called\n");
-    
+    printk(KERN_INFO "asgn1: *f_pos + count = %d\n", (int)(*f_pos + count));
+      
     // add pages if necessary
     while (asgn1_device.num_pages * PAGE_SIZE < *f_pos + count) {
-        printk(KERN_INFO "asgn1: *f_pos + count = %d\n", (int)(*f_pos + count));
         curr = kmalloc(sizeof(page_node), GFP_KERNEL);
         if (curr != NULL) {
             curr->page = alloc_page(GFP_KERNEL);
@@ -277,12 +277,10 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
             size_to_write = size_to_be_written;
             size_written += curr_size_written;
             // if still more to write
-            if (size_to_be_written > 0) {
+            if (size_written != count) {
                 begin_page_no++;  // go to next page
                 begin_offset = 0; // offset at start of page
                 printk(KERN_INFO "asgn1: Write to the next page %d\n", begin_page_no);
-                // may need to add another page here
-                
             }
             // nothing else to write
             else {
