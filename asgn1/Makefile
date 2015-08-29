@@ -28,7 +28,8 @@ install: uninstall
 	sudo chmod 777 /dev/asgn1
 
 uninstall:
+	sudo dmesg -c
 	-sudo rmmod asgn1
 
-read:
+mesg:
 	dmesg | grep "asgn1:"

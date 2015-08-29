@@ -111,8 +111,10 @@ int asgn1_open(struct inode *inode, struct file *filp) {
     printk(KERN_INFO "asgn1: Process count incremented to %d\n", atomic_read(&asgn1_device.nprocs));
 
     // If opened in write-only
-    if ((filp->f_flags & O_ACCMODE) == O_WRONLY)
+    if ((filp->f_flags & O_ACCMODE) == O_WRONLY) {
+        printk(KERN_INFO "asgn1: Opened in write-only\n");
         free_memory_pages();
+    }
     
     printk(KERN_INFO "asgn1: asgn1_open finished\n");
 
@@ -149,13 +151,13 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     size_t size_to_be_read;                   /* size to be read in the current round in while loop */
     size_t size_to_read = count;              /* size left to read from kernel space */
    
-    struct list_head *ptr = asgn1_device.mem_list.next;
+    //struct list_head *ptr = asgn1_device.mem_list.next;
     page_node *curr;
 
     /* Finished? */
 
     printk(KERN_INFO "asgn1: asgn1_read called\n");
-    
+    printk(KERN_INFO "asgn1: Number of pages %d\n", asgn1_device.num_pages);
     if (*f_pos > asgn1_device.data_size) {
         printk(KERN_INFO "asgn1: f_pos (%d) is greater then data_size (%d)\n", (int)*f_pos, (int)asgn1_device.data_size);
         return 0;
@@ -166,11 +168,11 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
         size_to_read = asgn1_device.data_size;
     }
     
-    list_for_each_entry(curr, ptr, list) {
+    list_for_each_entry(curr, &asgn1_device.mem_list, list) {
         // if we have reached the starting page to read from
         if (curr_page_no++ == begin_page_no) {
             printk(KERN_INFO "asgn1: Reading from page %d with size %d\n", curr_page_no, size_to_read);
-            size_to_be_read = copy_to_user(buf, page_address(curr->page) + begin_offset, size_to_read);
+            size_to_be_read = copy_to_user(buf + size_read, page_address(curr->page) + begin_offset, size_to_read);
             printk(KERN_INFO "asgn1: Size left to read = %d\n", size_to_be_read);
             curr_size_read = size_to_read - size_to_be_read;
             size_to_read = size_to_be_read;
@@ -189,6 +191,8 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
         }
     }
 
+    *f_pos += size_read;
+    
     printk(KERN_INFO "asgn1: size_read = %d\n", size_read);
     
     printk(KERN_INFO "asgn1: asgn1_read finished\n");
@@ -255,7 +259,8 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
         curr = kmalloc(sizeof(page_node), GFP_KERNEL);
         if (curr != NULL) {
             curr->page = alloc_page(GFP_KERNEL);
-            list_add_tail(&curr->list, ptr);
+            if (curr->page == NULL) printk(KERN_INFO "asgn1: Page failed\n");
+            list_add_tail(&curr->list, &asgn1_device.mem_list);
             asgn1_device.num_pages++;
             printk(KERN_INFO "asgn1: Added pages to list: %d\n", asgn1_device.num_pages);
         }
@@ -269,7 +274,8 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
         // if we have reached the starting page to write
         if (curr_page_no++ == begin_page_no) {
             printk(KERN_INFO "asgn1: Writing to page %d with size %d\n", curr_page_no, size_to_copy);
-            size_to_be_written = copy_from_user(page_address(curr->page) + begin_offset, buf, size_to_copy);
+            size_to_be_written = copy_from_user(page_address(curr->page) + begin_offset, buf + size_written, size_to_copy);
+            printk(KERN_INFO "asgn1: %s\n", page_address(curr->page) + begin_offset);
             printk(KERN_INFO "asgn1: Size left to write = %d\n", size_to_be_written);
             curr_size_written = size_to_copy - size_to_be_written;
             size_to_copy = size_to_be_written;
@@ -289,6 +295,8 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
         }
     }
 
+    *f_pos += size_written;
+    
     printk(KERN_INFO "asgn1: size_written = %d\n", size_written);
     
     asgn1_device.data_size = max(asgn1_device.data_size, orig_f_pos + size_written);
