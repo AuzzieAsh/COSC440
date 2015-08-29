@@ -6,3 +6,4 @@ Module.symvers
 *.mod.o
 *.o
 .DS_Store
+output.txt

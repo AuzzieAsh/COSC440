@@ -22,6 +22,7 @@ clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 	rm -f mmap_test mmap_test.o
 	rm -f *~
+	rm -f output.txt
 
 install: uninstall
 	sudo insmod ./asgn1.ko
