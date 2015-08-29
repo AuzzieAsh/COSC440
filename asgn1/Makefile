@@ -23,9 +23,12 @@ clean:
 	rm -f mmap_test mmap_test.o
 	rm -f *~
 
-help:
-	$(MAKE) -C $(KDIR) M=$(PWD) help
+install: uninstall
+	sudo insmod asgn1.ko
+	sudo chmod 777 /dev/asgn1
 
-install:
-	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
+uninstall:
+	-sudo rmmod asgn1
 
+read:
+	dmesg | grep "asgn1:"
