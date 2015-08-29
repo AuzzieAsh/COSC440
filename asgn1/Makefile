@@ -24,7 +24,7 @@ clean:
 	rm -f *~
 
 install: uninstall
-	sudo insmod asgn1.ko
+	sudo insmod ./asgn1.ko
 	sudo chmod 777 /dev/asgn1
 
 uninstall:

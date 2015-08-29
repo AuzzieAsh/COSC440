@@ -71,16 +71,15 @@ static struct proc_dir_entry *asgn1_proc;
  */
 void free_memory_pages(void) {
     /* Finished. */
-  
+
     page_node *curr, *tmp;
 
     printk(KERN_INFO "asgn1: free_memory_pages called\n");
     
     list_for_each_entry_safe(curr, tmp, &asgn1_device.mem_list, list) {
         if (curr != NULL) {
-            if (curr->page != NULL) {
-                __free_page(curr->page);
-            }
+            printk(KERN_INFO "asgn1: Freeing a memory page\n");
+            __free_page(curr->page);
             list_del(&curr->list);
             kfree(curr);
         }
@@ -102,7 +101,6 @@ int asgn1_open(struct inode *inode, struct file *filp) {
     int max_num_procs = atomic_read(&asgn1_device.max_nprocs);
 
     printk(KERN_INFO "asgn1: asgn1_open called\n");
-    printk(KERN_INFO "asgn1: nprocs = %d, max_nprocs = %d\n", num_procs, max_num_procs);
     
     if (num_procs > max_num_procs)
         return -EBUSY;
@@ -146,10 +144,10 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     size_t size_read = 0;                     /* size read from virtual disk in this function */
     size_t begin_offset = *f_pos % PAGE_SIZE; /* the offset from the beginning of a page to start reading */
     int begin_page_no = *f_pos / PAGE_SIZE;   /* the first page which contains the requested data */
-    int curr_page_no = 0;                     /* the current page number */
+    int curr_page_no = -1;                    /* the current page number */
     size_t curr_size_read;                    /* size read from the virtual disk in this round */
     size_t size_to_be_read;                   /* size to be read in the current round in while loop */
-    size_t size_to_read = count;              /* size left to read from kernel space */
+    size_t size_to_read;                      /* size left to read from kernel space */
    
     //struct list_head *ptr = asgn1_device.mem_list.next;
     page_node *curr;
@@ -159,18 +157,15 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     printk(KERN_INFO "asgn1: asgn1_read called\n");
     printk(KERN_INFO "asgn1: Number of pages %d\n", asgn1_device.num_pages);
     if (*f_pos > asgn1_device.data_size) {
-        printk(KERN_INFO "asgn1: f_pos (%d) is greater then data_size (%d)\n", (int)*f_pos, (int)asgn1_device.data_size);
+        printk(KERN_INFO "asgn1: f_pos (%d) > data_size (%d)\n", (int)*f_pos, (int)asgn1_device.data_size);
         return 0;
     }
 
-    if (count > asgn1_device.data_size) {
-        printk(KERN_INFO "asgn1: Attempted to read more then data_size!\n");
-        size_to_read = asgn1_device.data_size;
-    }
+    size_to_read = min(count, asgn1_device.data_size - (size_t)*f_pos);
     
     list_for_each_entry(curr, &asgn1_device.mem_list, list) {
         // if we have reached the starting page to read from
-        if (curr_page_no++ == begin_page_no) {
+        if (++curr_page_no == begin_page_no) {
             printk(KERN_INFO "asgn1: Reading from page %d with size %d\n", curr_page_no, size_to_read);
             size_to_be_read = copy_to_user(buf + size_read, page_address(curr->page) + begin_offset, size_to_read);
             printk(KERN_INFO "asgn1: Size left to read = %d\n", size_to_be_read);
@@ -242,12 +237,12 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
     size_t size_written = 0;                  /* size written to virtual disk in this function */
     size_t begin_offset = *f_pos % PAGE_SIZE; /* the offset from the beginning of a page to start writing */
     int begin_page_no = *f_pos / PAGE_SIZE;   /* the first page this function should start writing to */
-    int curr_page_no = 0;                     /* the current page number */
+    int curr_page_no = -1;                    /* the current page number */
     size_t curr_size_written;                 /* size written to virtual disk in this round */
     size_t size_to_be_written;                /* size to be read in the current round in while loop */
-    size_t size_to_copy = count;              /* size left to copy over from user space */
+    size_t size_to_write = count;             /* size left to copy over from user space */
     
-    struct list_head *ptr = asgn1_device.mem_list.next;
+    //struct list_head *ptr = asgn1_device.mem_list.next;
     page_node *curr;
 
     /* Finished? */
@@ -256,6 +251,7 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
     
     // add pages if necessary
     while (asgn1_device.num_pages * PAGE_SIZE < *f_pos + count) {
+        printk(KERN_INFO "asgn1: *f_pos + count = %d\n", (int)(*f_pos + count));
         curr = kmalloc(sizeof(page_node), GFP_KERNEL);
         if (curr != NULL) {
             curr->page = alloc_page(GFP_KERNEL);
@@ -270,15 +266,15 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
         }
     }
 
-    list_for_each_entry(curr, ptr, list) {
+    list_for_each_entry(curr, &asgn1_device.mem_list, list) {
         // if we have reached the starting page to write
-        if (curr_page_no++ == begin_page_no) {
-            printk(KERN_INFO "asgn1: Writing to page %d with size %d\n", curr_page_no, size_to_copy);
-            size_to_be_written = copy_from_user(page_address(curr->page) + begin_offset, buf + size_written, size_to_copy);
-            printk(KERN_INFO "asgn1: %s\n", page_address(curr->page) + begin_offset);
+        if (++curr_page_no == begin_page_no) {
+            size_to_write = min((int)(PAGE_SIZE - begin_offset), (int)(count - size_written));
+            printk(KERN_INFO "asgn1: Writing to page %d with size %d\n", curr_page_no, size_to_write);
+            size_to_be_written = copy_from_user(page_address(curr->page) + begin_offset, buf + size_written, size_to_write);
             printk(KERN_INFO "asgn1: Size left to write = %d\n", size_to_be_written);
-            curr_size_written = size_to_copy - size_to_be_written;
-            size_to_copy = size_to_be_written;
+            curr_size_written = size_to_write - size_to_be_written;
+            size_to_write = size_to_be_written;
             size_written += curr_size_written;
             // if still more to write
             if (size_to_be_written > 0) {
@@ -286,6 +282,7 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
                 begin_offset = 0; // offset at start of page
                 printk(KERN_INFO "asgn1: Write to the next page %d\n", begin_page_no);
                 // may need to add another page here
+                
             }
             // nothing else to write
             else {
