@@ -306,7 +306,9 @@ long asgn1_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
     int new_nprocs;
     int result;
 
-    /* COMPLETE ME */
+    printk(KERN_INFO "asgn1: asgn1_ioctl called\n");
+    
+    /* Finished? */
     /** 
      * check whether cmd is for our device, if not for us, return -EINVAL 
      *
@@ -314,22 +316,27 @@ long asgn1_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
      * set max_nprocs accordingly, don't forget to check validity of the 
      * value before setting max_nprocs
      */
+    // check if cmd if for this device
     if (_IOC_TYPE(cmd) != TEM_SET_NPROC)
         return -EINVAL;
-    /*
+    
     switch(cmd) {
     case SET_NPROC_OP:
-        result = access_ok(VERIFY_READ, filp->f_pos, arg);
-        if (result)
-            get_user(&new_nprocs, filp->f_pos);
-        else
-            return -EINVAL;
+        result = access_ok(VERIFY_READ, arg, sizeof(int));
+        if (!result) {
+            printk(KERN_INFO "asgn1: ioctl argument is not valid!\n");
+            return -EFAULT;
+        }
+        nr = __get_user(new_nprocs, (int __user*)arg);
         atomic_set(&asgn1_device.max_nprocs, new_nprocs);
-        return 0;
+        break;
     default:
         return -ENOTTY;
-    }*/
-    return 0;
+    }
+
+    printk(KERN_INFO "asgn1: asgn1_ioctl finished\n");
+    
+    return -ENOTTY;
 }
 
 /**
@@ -338,17 +345,17 @@ long asgn1_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
  */
 int asgn1_read_procmem(char *buf, char **start, off_t offset, int count, int *eof, void *data) {
 
-    /* stub */
-    int result;
-
-    /* COMPLETE ME */
+    /* Finished? */
     /**
      * use snprintf to print some info to buf, up to size count
      * set eof
      */
     *eof = 1;
-    result = snprintf(buf, count, "%s\n", "use snprintf to print some info to buf, up to size count");
-    return result;
+    return snprintf(buf, count, "nprocs %d, max_nprocs %d\nnum_pages %d, data_size %d\n",
+                      atomic_read(&asgn1_device.nprocs),
+                      atomic_read(&asgn1_device.max_nprocs),
+                      asgn1_device.num_pages,
+                      asgn1_device.data_size);
 }
 
 static int asgn1_mmap (struct file *filp, struct vm_area_struct *vma) {
@@ -419,7 +426,7 @@ int __init asgn1_init_module(void) {
     asgn1_device.cdev->owner = asgn1_fops.owner;
     result = cdev_add(asgn1_device.cdev, asgn1_device.dev, asgn1_dev_count);
     INIT_LIST_HEAD(&asgn1_device.mem_list);
-    asgn1_proc = create_proc_entry(MYDEV_NAME, 666, NULL);
+    asgn1_proc = create_proc_entry(MYDEV_NAME, 777, NULL);
     if (!asgn1_proc) {
         printk(KERN_INFO "asgn1: Failed to create proc entry %s\n", MYDEV_NAME);
         return -ENOMEM;
