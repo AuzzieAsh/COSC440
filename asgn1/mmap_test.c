@@ -119,7 +119,7 @@ int main (int argc, char **argv) {
 #if 0
     /* have the driver tell us the buffer size */
     if (ioctl (fd, MMAP_DEV_CMD_GET_BUFSIZE, &len) < 0) {
-        fprintf (stderr, "ioctl failed:  %s\n", strerror (errno));
+        fprintf (stderr, "ioctl failed 1:  %s\n", strerror (errno));
         exit (1);
     }
     printf ("driver's ioctl says buffer size is %ld\n", len);
@@ -134,11 +134,10 @@ int main (int argc, char **argv) {
         exit (1);
     }
     printf ("mmap succeeded:  %p\n", mmap_buf);
-
+    
     (void)lseek (fd, 0, SEEK_SET);
     read_and_compare (fd, buf, mmap_buf, SIZE);
     printf ("comparison of same data via read() and mmap() successful\n");
-
 
     /* Change one randomly chosen byte in the mmap region */
 
@@ -153,9 +152,9 @@ int main (int argc, char **argv) {
 
 
     (void)lseek (fd, 0, SEEK_SET);
-
+    
     if (ioctl (fd, ASGN1_SET_NPROC, &nproc) < 0) {
-        fprintf (stderr, "ioctl failed:  %s\n", strerror (errno));
+        fprintf (stderr, "ioctl failed 2:  %s\n", strerror (errno));
         exit (1);
     }
     printf("nproc set to %d\n", nproc);

@@ -101,7 +101,7 @@ int asgn1_open(struct inode *inode, struct file *filp) {
 
     printk(KERN_INFO "asgn1: asgn1_open called\n");
     
-    if (num_procs > max_num_procs)
+    if (num_procs >= max_num_procs)
         return -EBUSY;
     
     atomic_inc(&asgn1_device.nprocs);
@@ -197,6 +197,8 @@ static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd) {
     loff_t testpos;
     size_t buffer_size = asgn1_device.num_pages * PAGE_SIZE;
 
+    printk(KERN_INFO "asgn1: asgn1_leek called\n");
+    
     switch(cmd) {
     case SEEK_SET:
         testpos = offset;
@@ -218,8 +220,10 @@ static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd) {
 
     file->f_pos = testpos;
     
-    printk (KERN_INFO "asgn1: Seeking to pos=%ld\n", (long)testpos);
+    printk(KERN_INFO "asgn1: Seeking to pos=%ld\n", (long)testpos);
 
+    printk(KERN_INFO "asgn1: asgn1_leek finished\n");
+    
     return testpos;
 }
 
@@ -302,24 +306,26 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
  */
 long asgn1_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
 
-    int nr;
+    int nr = _IOC_NR(cmd);
     int new_nprocs;
     int result;
 
     printk(KERN_INFO "asgn1: asgn1_ioctl called\n");
 
     // check if cmd is for this device
-    if (_IOC_TYPE(cmd) != TEM_SET_NPROC)
+    if (_IOC_TYPE(cmd) != MYIOC_TYPE) {
+        printk(KERN_INFO "asgn1: got invalid case cmd = %d\n", cmd);
         return -EINVAL;
+    }
     
-    switch(cmd) {
+    switch(nr) {
     case SET_NPROC_OP:
-        result = access_ok(VERIFY_READ, arg, sizeof(int));
+        result = access_ok(VERIFY_WRITE, arg, sizeof(int));
         if (!result) {
             printk(KERN_INFO "asgn1: ioctl argument is not valid!\n");
             return -EFAULT;
         }
-        nr = __get_user(new_nprocs, (int __user*)arg);
+        result = __get_user(new_nprocs, (int __user*)arg);
         atomic_set(&asgn1_device.max_nprocs, new_nprocs);
         break;
     default:
@@ -328,7 +334,7 @@ long asgn1_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
 
     printk(KERN_INFO "asgn1: asgn1_ioctl finished\n");
     
-    return -ENOTTY;
+    return 0;
 }
 
 /**
@@ -362,7 +368,7 @@ static int asgn1_mmap (struct file *filp, struct vm_area_struct *vma) {
     list_for_each_entry(curr, &asgn1_device.mem_list, list) {
         if (index == pfn) {
             printk(KERN_INFO "asgn1: remaping pages from %ld to %ld\n", vma->vm_start, vma->vm_end);
-            if (remap_pfn_range(vma, vma->vm_start, pfn, ramdisk_size, vma->vm_page_prot))
+            if (remap_pfn_range(vma, vma->vm_start, offset, len, vma->vm_page_prot))
                 return -EAGAIN;
             break;
         }
