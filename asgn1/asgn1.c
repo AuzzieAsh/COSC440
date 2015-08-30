@@ -70,15 +70,15 @@ static struct proc_dir_entry *asgn1_proc;
  * This function frees all memory pages held by the module.
  */
 void free_memory_pages(void) {
-    /* Finished. */
 
+    int page_num = 0;
     page_node *curr, *tmp;
 
     printk(KERN_INFO "asgn1: free_memory_pages called\n");
     
     list_for_each_entry_safe(curr, tmp, &asgn1_device.mem_list, list) {
         if (curr != NULL) {
-            printk(KERN_INFO "asgn1: Freeing a memory page\n");
+            printk(KERN_INFO "asgn1: Freeing memory page %d\n", page_num++);
             __free_page(curr->page);
             list_del(&curr->list);
             kfree(curr);
@@ -95,7 +95,6 @@ void free_memory_pages(void) {
  * mode, all memory pages will be freed.
  */
 int asgn1_open(struct inode *inode, struct file *filp) {
-    /* Finished. */
 
     int num_procs = atomic_read(&asgn1_device.nprocs);
     int max_num_procs = atomic_read(&asgn1_device.max_nprocs);
@@ -124,7 +123,6 @@ int asgn1_open(struct inode *inode, struct file *filp) {
  * in this case. 
  */
 int asgn1_release (struct inode *inode, struct file *filp) {
-    /* Finished. */
 
     printk(KERN_INFO "asgn1: asgn1_release called\n");
     
@@ -146,14 +144,10 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     int begin_page_no = *f_pos / PAGE_SIZE;   /* the first page which contains the requested data */
     int curr_page_no = -1;                    /* the current page number */
     size_t curr_size_read;                    /* size read from the virtual disk in this round */
-    size_t size_to_be_read = count;           /* size to be read in the current round in while loop */
-    size_t size_to_read = 0;                  /* size left to read from kernel space */
+    size_t size_to_be_read;                   /* size to be read in the current round in while loop */
+    size_t size_to_read;                      /* size left to read from kernel space */
     size_t size_from_pages;                   /* maximum size to read from all pages */
-   
-    //struct list_head *ptr = asgn1_device.mem_list.next;
-    page_node *curr;
-
-    /* Finished? */
+    page_node *curr;                          /* the current node in the list */
 
     printk(KERN_INFO "asgn1: asgn1_read called\n");
     printk(KERN_INFO "asgn1: Number of pages %d\n", asgn1_device.num_pages);
@@ -199,7 +193,6 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
 }
 
 static loff_t asgn1_lseek (struct file *file, loff_t offset, int cmd) {
-    /* Finished. */
     
     loff_t testpos;
     size_t buffer_size = asgn1_device.num_pages * PAGE_SIZE;
@@ -244,11 +237,7 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
     size_t curr_size_written;                 /* size written to virtual disk in this round */
     size_t size_to_be_written;                /* size to be read in the current round in while loop */
     size_t size_to_write = count;             /* size left to copy over from user space */
-    
-    //struct list_head *ptr = asgn1_device.mem_list.next;
-    page_node *curr;
-
-    /* Finished? */
+    page_node *curr;                          /* the current node in the list */
 
     printk(KERN_INFO "asgn1: asgn1_write called\n");
     printk(KERN_INFO "asgn1: *f_pos + count = %d\n", (int)(*f_pos + count));
