@@ -13,7 +13,8 @@
  *       version.
  */
 
-/* This program is free software; you can redistribute it and/or
+/*
+ * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version
  * 2 of the License, or (at your option) any later version.
@@ -75,7 +76,8 @@ void free_memory_pages(void) {
     page_node *curr, *tmp;
 
     printk(KERN_INFO "asgn1: free_memory_pages called\n");
-    
+
+    // loop through the list, while freeing all the pages
     list_for_each_entry_safe(curr, tmp, &asgn1_device.mem_list, list) {
         if (curr != NULL) {
             printk(KERN_INFO "asgn1: Freeing memory page %d\n", page_num++);
@@ -84,6 +86,8 @@ void free_memory_pages(void) {
             kfree(curr);
         }
     }
+
+    // resey data_size and num_pages
     asgn1_device.data_size = 0;
     asgn1_device.num_pages = 0;
     
@@ -101,8 +105,10 @@ int asgn1_open(struct inode *inode, struct file *filp) {
 
     printk(KERN_INFO "asgn1: asgn1_open called\n");
     
-    if (num_procs >= max_num_procs)
+    if (num_procs >= max_num_procs) {
+        printk(KERN_WARNING "asgn1: Device already in use!\n");
         return -EBUSY;
+    }
     
     atomic_inc(&asgn1_device.nprocs);
     printk(KERN_INFO "asgn1: Process count incremented to %d\n", atomic_read(&asgn1_device.nprocs));
@@ -151,13 +157,15 @@ ssize_t asgn1_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
 
     printk(KERN_INFO "asgn1: asgn1_read called\n");
     printk(KERN_INFO "asgn1: Number of pages %d\n", asgn1_device.num_pages);
+
     if (*f_pos > asgn1_device.data_size) {
-        printk(KERN_INFO "asgn1: f_pos (%d) > data_size (%d)\n", (int)*f_pos, (int)asgn1_device.data_size);
+        printk(KERN_WARNING "asgn1: f_pos (%d) > data_size (%d)\n", (int)*f_pos, (int)asgn1_device.data_size);
         return 0;
     }
 
     size_from_pages = min(count, asgn1_device.data_size - (size_t)*f_pos);
-    
+
+    // loop through the list, reading the contents of each page
     list_for_each_entry(curr, &asgn1_device.mem_list, list) {
         // if we have reached the starting page to read from
         if (++curr_page_no == begin_page_no) {
@@ -251,17 +259,21 @@ ssize_t asgn1_write(struct file *filp, const char __user *buf, size_t count, lof
         curr = kmalloc(sizeof(page_node), GFP_KERNEL);
         if (curr != NULL) {
             curr->page = alloc_page(GFP_KERNEL);
-            if (curr->page == NULL) printk(KERN_INFO "asgn1: Page failed\n");
+            if (curr->page == NULL) {
+                printk(KERN_WARNING "asgn1: Page allocation failed!\n");
+                return size_written;
+            }
             list_add_tail(&curr->list, &asgn1_device.mem_list);
             asgn1_device.num_pages++;
             printk(KERN_INFO "asgn1: Added pages to list: %d\n", asgn1_device.num_pages);
         }
         else {
-            printk(KERN_INFO "asgn1: Couldn't add pages to list!\n");
+            printk(KERN_WARNING "asgn1: Couldn't add pages to list!\n");
             return size_written;
         }
     }
 
+    // loop through the list, writing to each page
     list_for_each_entry(curr, &asgn1_device.mem_list, list) {
         // if we have reached the starting page to write
         if (++curr_page_no == begin_page_no) {
@@ -314,18 +326,22 @@ long asgn1_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
 
     // check if cmd is for this device
     if (_IOC_TYPE(cmd) != MYIOC_TYPE) {
-        printk(KERN_INFO "asgn1: got invalid case cmd = %d\n", cmd);
+        printk(KERN_WARNING "asgn1: Got invalid case cmd = %d\n", cmd);
         return -EINVAL;
     }
     
     switch(nr) {
     case SET_NPROC_OP:
-        result = access_ok(VERIFY_WRITE, arg, sizeof(int));
+        result = access_ok(VERIFY_READ, arg, sizeof(int));
         if (!result) {
-            printk(KERN_INFO "asgn1: ioctl argument is not valid!\n");
+            printk(KERN_WARNING "asgn1: ioctl argument is not valid!\n");
             return -EFAULT;
         }
-        result = __get_user(new_nprocs, (int __user*)arg);
+        result = get_user(new_nprocs, (int *)arg);
+        if (new_nprocs < 0) {
+            printk(KERN_WARNING "asgn1: user tried to set max_nprocs to less than 0!\n");
+            return -EINVAL;
+        }
         atomic_set(&asgn1_device.max_nprocs, new_nprocs);
         break;
     default:
@@ -362,14 +378,19 @@ static int asgn1_mmap (struct file *filp, struct vm_area_struct *vma) {
 
     printk(KERN_INFO "asgn1: asgn1_mmap called\n");
     
-    if (offset > ramdisk_size || len > ramdisk_size)
+    if (offset > ramdisk_size || len > ramdisk_size) {
+        printk(KERN_WARNING "asgn1: offset or len are invalid!\n");
         return -EINVAL;
-    
+    }
+
+    // loop through the list, remapping the requested pages
     list_for_each_entry(curr, &asgn1_device.mem_list, list) {
         if (index == pfn) {
-            printk(KERN_INFO "asgn1: remaping pages from %ld to %ld\n", vma->vm_start, vma->vm_end);
-            if (remap_pfn_range(vma, vma->vm_start, offset, len, vma->vm_page_prot))
+            printk(KERN_INFO "asgn1: Remaping pages from %ld to %ld\n", vma->vm_start, vma->vm_end);
+            if (remap_pfn_range(vma, vma->vm_start, offset, len, vma->vm_page_prot)) {
+                printk(KERN_WARNING "asgn1: Failed to remap pages!\n");
                 return -EAGAIN;
+            }
             break;
         }
         index++;
@@ -401,10 +422,14 @@ int __init asgn1_init_module(void) {
     atomic_set(&asgn1_device.nprocs, 0);
     atomic_set(&asgn1_device.max_nprocs, 1);
     result = alloc_chrdev_region(&asgn1_device.dev, asgn1_minor, asgn1_dev_count, MYDEV_NAME);
+    if (result < 0)
+        goto fail_device;
     asgn1_device.cdev = cdev_alloc();
     asgn1_device.cdev->ops = &asgn1_fops;
     asgn1_device.cdev->owner = asgn1_fops.owner;
     result = cdev_add(asgn1_device.cdev, asgn1_device.dev, asgn1_dev_count);
+    if (result < 0)
+        goto fail_device;
     INIT_LIST_HEAD(&asgn1_device.mem_list);
     asgn1_proc = create_proc_entry(MYDEV_NAME, 777, NULL);
     if (!asgn1_proc) {
@@ -434,10 +459,15 @@ fail_device:
 
 
     free_memory_pages();
-
+    if (asgn1_device.dev)
+        unregister_chrdev_region(asgn1_device.dev, 1);
+    if (asgn1_device.class)
+        class_destroy(asgn1_device.class);
     if (asgn1_proc)
         remove_proc_entry(MYDEV_NAME, NULL);
-
+    if (asgn1_device.cdev)
+        cdev_del(asgn1_device.cdev);
+    
     return result;
 }
 
@@ -445,14 +475,16 @@ fail_device:
  * Finalise the module
  */
 void __exit asgn1_exit_module(void) {
-
+    
     device_destroy(asgn1_device.class, asgn1_device.dev);
     class_destroy(asgn1_device.class);
+    
     printk(KERN_WARNING "asgn1: cleaned up udev entry\n");
 
     free_memory_pages();
-    if (asgn1_proc)
-        remove_proc_entry(MYDEV_NAME, NULL);
+    unregister_chrdev_region(asgn1_device.dev, 1);
+    remove_proc_entry(MYDEV_NAME, NULL);
+    cdev_del(asgn1_device.cdev);
 
     printk(KERN_WARNING "asgn1: Good bye from %s\n", MYDEV_NAME);
 }
