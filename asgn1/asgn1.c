@@ -3,7 +3,7 @@
  * Date: 13/03/2011
  * Modified: 01/09/2015
  * Author: Ashley Manson 
- * Version: 0.1
+ * Version: 1.0
  *
  * This is a module which serves as a virtual ramdisk which disk size is
  * limited by the amount of memory available and serves as the requirement for
@@ -307,16 +307,8 @@ long asgn1_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
     int result;
 
     printk(KERN_INFO "asgn1: asgn1_ioctl called\n");
-    
-    /* Finished? */
-    /** 
-     * check whether cmd is for our device, if not for us, return -EINVAL 
-     *
-     * get command, and if command is SET_NPROC_OP, then get the data, and
-     * set max_nprocs accordingly, don't forget to check validity of the 
-     * value before setting max_nprocs
-     */
-    // check if cmd if for this device
+
+    // check if cmd is for this device
     if (_IOC_TYPE(cmd) != TEM_SET_NPROC)
         return -EINVAL;
     
@@ -345,11 +337,6 @@ long asgn1_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
  */
 int asgn1_read_procmem(char *buf, char **start, off_t offset, int count, int *eof, void *data) {
 
-    /* Finished? */
-    /**
-     * use snprintf to print some info to buf, up to size count
-     * set eof
-     */
     *eof = 1;
     return snprintf(buf, count, "nprocs %d, max_nprocs %d\nnum_pages %d, data_size %d\n",
                       atomic_read(&asgn1_device.nprocs),
@@ -360,33 +347,30 @@ int asgn1_read_procmem(char *buf, char **start, off_t offset, int count, int *eo
 
 static int asgn1_mmap (struct file *filp, struct vm_area_struct *vma) {
 
-    unsigned long pfn;
+    unsigned long pfn = vma->vm_start / PAGE_SIZE;
     unsigned long offset = vma->vm_pgoff << PAGE_SHIFT;
     unsigned long len = vma->vm_end - vma->vm_start;
     unsigned long ramdisk_size = asgn1_device.num_pages * PAGE_SIZE;
     page_node *curr;
     unsigned long index = 0;
 
-    /* COMPLETE ME */
-    /**
-     * check offset and len
-     *
-     * loop through the entire page list, once the first requested page
-     *   reached, add each page with remap_pfn_range one by one
-     *   up to the last requested page
-     */
-    if (offset + len > ramdisk_size)
+    printk(KERN_INFO "asgn1: asgn1_mmap called\n");
+    
+    if (offset > ramdisk_size || len > ramdisk_size)
         return -EINVAL;
-    /*  
-    list_for_each(curr, list) {
-        if (index >= offset)
+    
+    list_for_each_entry(curr, &asgn1_device.mem_list, list) {
+        if (index == pfn) {
+            printk(KERN_INFO "asgn1: remaping pages from %ld to %ld\n", vma->vm_start, vma->vm_end);
+            if (remap_pfn_range(vma, vma->vm_start, pfn, ramdisk_size, vma->vm_page_prot))
+                return -EAGAIN;
             break;
+        }
         index++;
     }
-    */
-    if (remap_pfn_range(vma, vma->vm_start, offset, len, vma->vm_page_prot))
-        return -EAGAIN;
 
+    printk(KERN_INFO "asgn1: asgn1_mmap finished\n");
+    
     return 0;
 }
 
@@ -408,16 +392,6 @@ int __init asgn1_init_module(void) {
 
     int result; 
 
-    /* Finished? */
-    /**
-     * set nprocs and max_nprocs of the device
-     *
-     * allocate major number
-     * allocate cdev, and set ops and owner field 
-     * add cdev
-     * initialize the page list
-     * create proc entries
-     */
     atomic_set(&asgn1_device.nprocs, 0);
     atomic_set(&asgn1_device.max_nprocs, 1);
     result = alloc_chrdev_region(&asgn1_device.dev, asgn1_minor, asgn1_dev_count, MYDEV_NAME);
@@ -449,12 +423,10 @@ int __init asgn1_init_module(void) {
     printk(KERN_WARNING "asgn1: Hello world from %s\n", MYDEV_NAME);
     return 0;
 
-    /* cleanup code called when any of the initialization steps fail */
 fail_device:
     class_destroy(asgn1_device.class);
 
-    /* Finished? */
-    /* PLEASE PUT YOUR CLEANUP CODE HERE, IN REVERSE ORDER OF ALLOCATION */
+
     free_memory_pages();
 
     if (asgn1_proc)
@@ -472,11 +444,6 @@ void __exit asgn1_exit_module(void) {
     class_destroy(asgn1_device.class);
     printk(KERN_WARNING "asgn1: cleaned up udev entry\n");
 
-    /* Finished? */
-    /**
-     * free all pages in the page list 
-     * cleanup in reverse order
-     */
     free_memory_pages();
     if (asgn1_proc)
         remove_proc_entry(MYDEV_NAME, NULL);
