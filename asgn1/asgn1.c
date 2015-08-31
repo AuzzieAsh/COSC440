@@ -369,7 +369,7 @@ int asgn1_read_procmem(char *buf, char **start, off_t offset, int count, int *eo
 
 static int asgn1_mmap (struct file *filp, struct vm_area_struct *vma) {
 
-    unsigned long pfn = vma->vm_start / PAGE_SIZE;
+    unsigned long pfn;
     unsigned long offset = vma->vm_pgoff << PAGE_SHIFT;
     unsigned long len = vma->vm_end - vma->vm_start;
     unsigned long ramdisk_size = asgn1_device.num_pages * PAGE_SIZE;
@@ -378,20 +378,18 @@ static int asgn1_mmap (struct file *filp, struct vm_area_struct *vma) {
 
     printk(KERN_INFO "asgn1: asgn1_mmap called\n");
     
-    if (offset > ramdisk_size || len > ramdisk_size) {
+    if (len > ramdisk_size || offset > asgn1_device.num_pages) {
         printk(KERN_WARNING "asgn1: offset or len are invalid!\n");
         return -EINVAL;
     }
 
     // loop through the list, remapping the requested pages
     list_for_each_entry(curr, &asgn1_device.mem_list, list) {
-        if (index == pfn) {
+        if (index >= offset && vma->vm_start+(index*PAGE_SIZE) < vma->vm_end) {
             printk(KERN_INFO "asgn1: Remaping pages from %ld to %ld\n", vma->vm_start, vma->vm_end);
-            if (remap_pfn_range(vma, vma->vm_start, offset, len, vma->vm_page_prot)) {
-                printk(KERN_WARNING "asgn1: Failed to remap pages!\n");
-                return -EAGAIN;
-            }
-            break;
+            pfn = page_to_pfn(curr->page);
+            remap_pfn_range(vma, vma->vm_start+(index*PAGE_SIZE), pfn, PAGE_SIZE, vma->vm_page_prot);
+            
         }
         index++;
     }
