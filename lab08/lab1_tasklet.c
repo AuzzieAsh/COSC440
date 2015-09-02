@@ -64,7 +64,6 @@ static void t_fun(unsigned long t_arg)
 }
 
 /* initialize tasklet */
-
 static DECLARE_TASKLET(t_name, t_fun, (unsigned long)&t_data);
 
 static ssize_t
@@ -73,13 +72,12 @@ mycdrv_write(struct file *file, const char __user * buf, size_t lbuf,
 {
 	printk(KERN_INFO " Entering the WRITE function\n");
 	printk(KERN_INFO " my current task pid is %d\n", (int)current->pid);
-	printk(KERN_INFO "about to schedule tasklet, jiffies=%ld\n", jiffies);
-
+	printk(KERN_INFO "about to schedule tasklet, jiffies=%ld\n", (long)jiffies);
 
 	/* COMPLETE ME */
 	/* schedule the tasklet here */
-	/* END TRIM */
-
+        tasklet_schedule(&t_name);
+        /* END TRIM */
 
 	printk(KERN_INFO " i queued the task, jiffies=%ld\n", jiffies);
 	t_data.len += 100;

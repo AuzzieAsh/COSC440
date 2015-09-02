@@ -50,7 +50,7 @@ static inline int mycdrv_generic_open(struct inode *inode, struct file *file)
 	printk(KERN_INFO " successfully open  device: %s:\n\n", MYDEV_NAME);
 	printk(KERN_INFO "I have been opened  %d times since being loaded\n",
 	       counter);
-	printk(KERN_INFO "ref=%d\n", module_refcount(THIS_MODULE));
+	printk(KERN_INFO "ref=%ld\n", module_refcount(THIS_MODULE));
 
 	return 0;
 }
