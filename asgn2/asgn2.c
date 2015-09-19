@@ -1,7 +1,7 @@
 /**
  * File: asgn2.c
  * Date: 13/03/2011
- * Modified: 01/09/2015
+ * Modified: 19/09/2015
  * Author: Ashley Manson 
  * Version: 1.0
  *
@@ -13,7 +13,7 @@
  *       version.
  */
 
-/*
+/**
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version
@@ -30,6 +30,7 @@
 #include <linux/mm.h>
 #include <linux/proc_fs.h>
 #include <linux/device.h>
+#include "gpio.h"
 
 #define MYDEV_NAME "asgn2"
 #define MYIOC_TYPE 'k'
@@ -87,7 +88,7 @@ void free_memory_pages(void) {
         }
     }
 
-    // resey data_size and num_pages
+    // reset data_size and num_pages
     asgn2_device.data_size = 0;
     asgn2_device.num_pages = 0;
     
@@ -204,7 +205,7 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
  * This function writes from the user buffer to the virtual disk of this
  * module
  */
-/*
+/**
 ssize_t asgn2_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos) {
 
     size_t orig_f_pos = *f_pos;               / * the original file position * /
@@ -369,6 +370,8 @@ int __init asgn2_init_module(void) {
     }
     asgn2_proc->read_proc = asgn2_read_procmem;
 
+    gpio_dummy_init();
+    
     asgn2_device.class = class_create(THIS_MODULE, MYDEV_NAME);
     if (IS_ERR(asgn2_device.class)) {
     }
@@ -388,7 +391,6 @@ int __init asgn2_init_module(void) {
 fail_device:
     class_destroy(asgn2_device.class);
 
-
     free_memory_pages();
     if (asgn2_device.dev)
         unregister_chrdev_region(asgn2_device.dev, 1);
@@ -406,6 +408,8 @@ fail_device:
  * Finalise the module
  */
 void __exit asgn2_exit_module(void) {
+
+    gpio_dummy_exit();
     
     device_destroy(asgn2_device.class, asgn2_device.dev);
     class_destroy(asgn2_device.class);
