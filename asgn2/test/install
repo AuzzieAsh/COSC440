@@ -1,0 +1,6 @@
+#!/bin/bash
+wget -q -nc http://www.cs.otago.ac.nz/cosc440/asgn2.ko
+sudo rmmod asgn2
+sudo insmod asgn2.ko
+sudo chown pi:pi /dev/mem
+sudo chmod 777 /dev/mem

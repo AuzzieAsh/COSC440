@@ -7,7 +7,8 @@
 #ifndef GPIO_H
 #define GPIO_H
 
-int gpio_dummy_init();
-void gpio_dummy_exit();
+extern u8 read_half_byte(void);
+extern int gpio_dummy_init(void);
+extern void gpio_dummy_exit(void);
 
 #endif

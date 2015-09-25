@@ -7,3 +7,4 @@ Module.symvers
 *.o
 .DS_Store
 output.txt
+.tmp_versions

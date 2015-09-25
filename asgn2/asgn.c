@@ -1,13 +1,12 @@
 /**
  * File: asgn2.c
  * Date: 13/03/2011
- * Modified: 19/09/2015
+ * Modified: 25/09/2015
  * Author: Ashley Manson 
- * Version: 1.0
+ * Version: 1.1
  *
- * This is a module which serves as a virtual ramdisk which disk size is
- * limited by the amount of memory available and serves as the requirement for
- * COSC440 assignment 2 in 2015.
+ * This is a module which serves as a driver for a dummpy GPIO port device
+ * and serves as the requirement for COSC440 assignment 2 in 2015.
  *
  * Note: multiple devices and concurrent modules are not supported in this
  *       version.
@@ -30,6 +29,9 @@
 #include <linux/mm.h>
 #include <linux/proc_fs.h>
 #include <linux/device.h>
+#include <linux/sched.h>
+#include <linux/interrupt.h>
+#include <linux/circ_buf.h>
 #include "gpio.h"
 
 #define MYDEV_NAME "asgn2"
@@ -47,6 +49,9 @@ typedef struct page_node_rec {
     struct page *page;
 } page_node;
 
+/**
+ * The device structure
+ */
 typedef struct asgn2_dev_t {
     dev_t dev;                /* the device */
     struct cdev *cdev;
@@ -60,13 +65,86 @@ typedef struct asgn2_dev_t {
     struct device *device;    /* the udev device node */
 } asgn2_dev;
 
-asgn2_dev asgn2_device;
+/**
+ * circular buffer for temp storage
+ */
+#define BUFFER_CAPACITY 512
+typedef struct c_buf_t {
+    size_t head;
+    size_t tail;
+    u8 buffer[BUFFER_CAPACITY];
+} c_buf;
 
-int asgn2_major = 0;     /* major number of module */  
-int asgn2_minor = 0;     /* minor number of module */
-int asgn2_dev_count = 1; /* number of devices */
+/**
+ * Stored session list
+ */
+#define MAX_SESSIONS 64
+typedef struct session_list_t {
+    size_t head;
+    size_t count;
+    size_t session_sizes[MAX_SESSIONS];
+} session_list;
 
-static struct proc_dir_entry *asgn2_proc;
+/**
+ * >>> Variables <<<
+ */
+asgn2_dev asgn2_device;                   /* device for module */
+int asgn2_major = 0;                      /* major number of module */  
+int asgn2_minor = 0;                      /* minor number of module */
+int asgn2_dev_count = 1;                  /* number of devices */
+static struct proc_dir_entry *asgn2_proc; /* proc entry for device */
+static DECLARE_WAIT_QUEUE_HEAD(wq);       /* the wait queue */
+int toggle = 1;                           /* toggle for first/second part of half byte */
+u8 top_full_byte = 0;                     /* full byte read in from top half */
+c_buf circ_buffer;                        /* circular buffer temp storage */
+session_list sessions;                    /* list of all sessions */
+
+/**
+ * Bottom Half
+ * Copy from  buffer to list
+ */
+void tasklet_copy(unsigned long data) {
+    
+}
+
+DECLARE_TASKLET(buf_copy, tasklet_copy, 0);
+
+/**
+ * Top Half
+ * Add bytes to buffer
+ */
+irqreturn_t dummyport_interrupt(int irq, void *dev_id) {
+    u8 read_byte = read_half_byte();
+
+    // First part of byte
+    if (toggle) {
+        top_full_byte = read_byte << 4;
+    }
+    // Second part of byte
+    else {
+        if (CIRC_CNT(circ_buffer.head, circ_buffer.tail, BUFFER_CAPACITY)  >= BUFFER_CAPACITY) {
+            printk(KERN_WARNING "asgn2: Temporary buffer is full, dropping most recent byte\n");
+            return IRQ_HANDLED;
+        }
+
+        top_full_byte = top_full_byte | read_byte;
+
+        printk(KERN_INFO "asgn2: Assembled full byte: %d\n", top_full_byte);
+        
+        // store in circular buffer
+        circ_buffer.buffer[circ_buffer.head] = top_full_byte;
+        circ_buffer.head = (circ_buffer.head + 1) % BUFFER_CAPACITY;
+
+        printk(KERN_INFO "asgn2: Space left: %d\n", CIRC_SPACE(circ_buffer.head, circ_buffer.tail, BUFFER_CAPACITY));
+        
+        // schedule tasklet to copy from circular buffer
+        tasklet_schedule(&buf_copy);
+        printk(KERN_INFO "asgn2: Tasklet scheduled\n");
+    }
+
+    toggle = toggle ? 0 : 1;
+    return IRQ_HANDLED;
+}
 
 /**
  * This function frees all memory pages held by the module.
@@ -205,18 +283,18 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
  * This function writes from the user buffer to the virtual disk of this
  * module
  */
-/**
+
 ssize_t asgn2_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos) {
 
-    size_t orig_f_pos = *f_pos;               / * the original file position * /
-    size_t size_written = 0;                  / * size written to virtual disk in this function * /
-    size_t begin_offset = *f_pos % PAGE_SIZE; / * the offset from the beginning of a page to start writing * /
-    int begin_page_no = *f_pos / PAGE_SIZE;   / * the first page this function should start writing to * /
-    int curr_page_no = -1;                    / * the current page number * /
-    size_t curr_size_written;                 / * size written to virtual disk in this round * /
-    size_t size_to_be_written;                / * size to be read in the current round in while loop * /
-    size_t size_to_write = count;             / * size left to copy over from user space * /
-    page_node *curr;                          / * the current node in the list * /
+    size_t orig_f_pos = *f_pos;               /* the original file position */
+    size_t size_written = 0;                  /* size written to virtual disk in this function */
+    size_t begin_offset = *f_pos % PAGE_SIZE; /* the offset from the beginning of a page to start writing */
+    int begin_page_no = *f_pos / PAGE_SIZE;   /* the first page this function should start writing to */
+    int curr_page_no = -1;                    /* the current page number */
+    size_t curr_size_written;                 /* size written to virtual disk in this round */
+    size_t size_to_be_written;                /* size to be read in the current round in while loop */
+    size_t size_to_write = count;             /* size left to copy over from user space */
+    page_node *curr;                          /* the current node in the list */
 
     printk(KERN_INFO "asgn2: asgn2_write called\n");
     printk(KERN_INFO "asgn2: *f_pos + count = %d\n", (int)(*f_pos + count));
@@ -276,7 +354,6 @@ ssize_t asgn2_write(struct file *filp, const char __user *buf, size_t count, lof
     
     return size_written;
 }
-*/
 
 #define SET_NPROC_OP 1
 #define TEM_SET_NPROC _IOW(MYIOC_TYPE, SET_NPROC_OP, int) 
@@ -338,7 +415,7 @@ int asgn2_read_procmem(char *buf, char **start, off_t offset, int count, int *eo
 struct file_operations asgn2_fops = {
     .owner = THIS_MODULE,
     .read = asgn2_read,
-    //.write = asgn2_write,
+    .write = asgn2_write,
     .unlocked_ioctl = asgn2_ioctl,
     .open = asgn2_open,
     .release = asgn2_release,
@@ -370,7 +447,11 @@ int __init asgn2_init_module(void) {
     }
     asgn2_proc->read_proc = asgn2_read_procmem;
 
-    gpio_dummy_init();
+    result = gpio_dummy_init();
+    if (result < 0) {
+        printk(KERN_WARNING "asgn2: %s failed to init gpio\n", MYDEV_NAME);
+        goto fail_device;
+    }
     
     asgn2_device.class = class_create(THIS_MODULE, MYDEV_NAME);
     if (IS_ERR(asgn2_device.class)) {
