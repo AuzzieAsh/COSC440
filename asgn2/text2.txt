@@ -1,0 +1,3 @@
+This is a text file mate
+add this to the buffer
+ok that should be it
