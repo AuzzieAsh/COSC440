@@ -1,7 +1,6 @@
 /**
- * File: asgn2.c
- * Date: 13/03/2011
- * Modified: 25/09/2015
+ * File: asgn.c
+ * Date: 26/09/2015
  * Author: Ashley Manson 
  * Version: 1.1
  *
@@ -68,22 +67,22 @@ typedef struct asgn2_dev_t {
 /**
  * circular buffer for temp storage
  */
-#define BUFFER_CAPACITY 512
-typedef struct c_buf_t {
-    size_t head;
-    size_t tail;
-    u8 buffer[BUFFER_CAPACITY];
-} c_buf;
-
-/**
- * Stored session list
- */
-#define MAX_SESSIONS 64
-typedef struct session_list_t {
+#define BUFFER_CAPACITY 64
+typedef struct circular_buf_t {
     size_t head;
     size_t count;
-    size_t session_sizes[MAX_SESSIONS];
-} session_list;
+    u8 buffer[BUFFER_CAPACITY];
+} circular_buf;
+
+/**
+ * keep track of sessions/files
+ */
+#define MAX_SESSIONS 100
+typedef struct sessions_tracker_t {
+    size_t head;
+    size_t count;
+    size_t sizes[MAX_SESSIONS];
+} sessions_tracker;
 
 /**
  * >>> Variables <<<
@@ -96,49 +95,97 @@ static struct proc_dir_entry *asgn2_proc; /* proc entry for device */
 static DECLARE_WAIT_QUEUE_HEAD(wq);       /* the wait queue */
 int toggle = 1;                           /* toggle for first/second part of half byte */
 u8 top_full_byte = 0;                     /* full byte read in from top half */
-c_buf circ_buffer;                        /* circular buffer temp storage */
-session_list sessions;                    /* list of all sessions */
+circular_buf cbuf;                        /* circular buffer temp storage */
+sessions_tracker sessions;                /* struct to keep track of sessions */
+size_t session_size = 0;                  /* keeps track of current session size */
 
 /**
  * Bottom Half
  * Copy from  buffer to list
  */
 void tasklet_copy(unsigned long data) {
+
+    u8 byte;
+    size_t begin_offset;
+    struct list_head *ptr;
+    page_node *curr;
     
+    // while something in cbuf, copy to page list
+    while (cbuf.count != 0) {
+        byte = cbuf.buffer[cbuf.head];
+        cbuf.head = (cbuf.head + 1) & BUFFER_CAPACITY;
+        cbuf.count--;
+        begin_offset = asgn2_device.data_size % PAGE_SIZE;
+        ptr = asgn2_device.mem_list.next;
+        curr = list_entry(ptr, page_node, list);
+
+        // if we are starting on a new page, allocate it
+        if (begin_offset == 0) {
+            curr = kmalloc(sizeof(page_node), GFP_KERNEL);
+            if (curr != NULL) {
+                curr->page = alloc_page(GFP_KERNEL);
+                if (curr->page == NULL) {
+                    printk(KERN_WARNING "asgn2: Page allocation failed!\n");
+                    return;
+                }
+                list_add_tail(&curr->list, &asgn2_device.mem_list);
+                asgn2_device.num_pages++;
+                printk(KERN_INFO "asgn2: Added a page to list: %d\n", asgn2_device.num_pages);
+            }
+            else {
+                printk(KERN_WARNING "asgn2: Couldn't add pages to list!\n");
+                return;
+            }
+        }
+        memcpy(page_address(curr->page) + begin_offset, &byte, 1);
+        asgn2_device.data_size += sizeof(byte);
+
+    }
 }
 
-DECLARE_TASKLET(buf_copy, tasklet_copy, 0);
+DECLARE_TASKLET(buffer_copy, tasklet_copy, 0);
 
 /**
  * Top Half
  * Add bytes to buffer
  */
 irqreturn_t dummyport_interrupt(int irq, void *dev_id) {
-    u8 read_byte = read_half_byte();
 
+    u8 read_byte = read_half_byte();
+    int cbuf_end = (cbuf.head + cbuf.count) % BUFFER_CAPACITY;
+    int session_end = (sessions.head + sessions.count) % MAX_SESSIONS;
+    
     // First part of byte
     if (toggle) {
         top_full_byte = read_byte << 4;
     }
     // Second part of byte
     else {
-        if (CIRC_CNT(circ_buffer.head, circ_buffer.tail, BUFFER_CAPACITY)  >= BUFFER_CAPACITY) {
-            printk(KERN_WARNING "asgn2: Temporary buffer is full, dropping most recent byte\n");
-            return IRQ_HANDLED;
-        }
-
         top_full_byte = top_full_byte | read_byte;
-
-        printk(KERN_INFO "asgn2: Assembled full byte: %d\n", top_full_byte);
         
-        // store in circular buffer
-        circ_buffer.buffer[circ_buffer.head] = top_full_byte;
-        circ_buffer.head = (circ_buffer.head + 1) % BUFFER_CAPACITY;
+        printk(KERN_INFO "asgn2: Assembled full byte: %d\n", top_full_byte);
 
-        printk(KERN_INFO "asgn2: Space left: %d\n", CIRC_SPACE(circ_buffer.head, circ_buffer.tail, BUFFER_CAPACITY));
+        if (top_full_byte == '\0') {
+            sessions.sizes[session_end] = session_size;
+            sessions.count++;
+            printk(KERN_INFO "asgn2: Session/File size: %d\n", session_size);
+            session_size = 0;
+        }
+        else {
+            printk(KERN_INFO "asgn2: cbuf count: %d\n", cbuf.count);
+            if (cbuf.count >= BUFFER_CAPACITY) {
+                printk(KERN_WARNING "asgn2: Temporary buffer is full, dropping most recent half byte\n");
+                return IRQ_HANDLED;
+            }
+            
+            // store in circular buffer
+            cbuf.buffer[cbuf_end] = top_full_byte;
+            cbuf.count++;
+            session_size++;
+        }
         
         // schedule tasklet to copy from circular buffer
-        tasklet_schedule(&buf_copy);
+        tasklet_schedule(&buffer_copy);
         printk(KERN_INFO "asgn2: Tasklet scheduled\n");
     }
 
@@ -283,77 +330,8 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
  * This function writes from the user buffer to the virtual disk of this
  * module
  */
-
-ssize_t asgn2_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos) {
-
-    size_t orig_f_pos = *f_pos;               /* the original file position */
-    size_t size_written = 0;                  /* size written to virtual disk in this function */
-    size_t begin_offset = *f_pos % PAGE_SIZE; /* the offset from the beginning of a page to start writing */
-    int begin_page_no = *f_pos / PAGE_SIZE;   /* the first page this function should start writing to */
-    int curr_page_no = -1;                    /* the current page number */
-    size_t curr_size_written;                 /* size written to virtual disk in this round */
-    size_t size_to_be_written;                /* size to be read in the current round in while loop */
-    size_t size_to_write = count;             /* size left to copy over from user space */
-    page_node *curr;                          /* the current node in the list */
-
-    printk(KERN_INFO "asgn2: asgn2_write called\n");
-    printk(KERN_INFO "asgn2: *f_pos + count = %d\n", (int)(*f_pos + count));
-      
-    // add pages if necessary
-    while (asgn2_device.num_pages * PAGE_SIZE < *f_pos + count) {
-        curr = kmalloc(sizeof(page_node), GFP_KERNEL);
-        if (curr != NULL) {
-            curr->page = alloc_page(GFP_KERNEL);
-            if (curr->page == NULL) {
-                printk(KERN_WARNING "asgn2: Page allocation failed!\n");
-                return size_written;
-            }
-            list_add_tail(&curr->list, &asgn2_device.mem_list);
-            asgn2_device.num_pages++;
-            printk(KERN_INFO "asgn2: Added pages to list: %d\n", asgn2_device.num_pages);
-        }
-        else {
-            printk(KERN_WARNING "asgn2: Couldn't add pages to list!\n");
-            return size_written;
-        }
-    }
-
-    // loop through the list, writing to each page
-    list_for_each_entry(curr, &asgn2_device.mem_list, list) {
-        // if we have reached the starting page to write
-        if (++curr_page_no == begin_page_no) {
-            size_to_write = min((int)(PAGE_SIZE - begin_offset), (int)(count - size_written));
-            printk(KERN_INFO "asgn2: Writing to page %d with size %d\n", curr_page_no, size_to_write);
-            size_to_be_written = copy_from_user(page_address(curr->page) + begin_offset, buf + size_written, size_to_write);
-            printk(KERN_INFO "asgn2: Size left to write = %d\n", size_to_be_written);
-            curr_size_written = size_to_write - size_to_be_written;
-            size_to_write = size_to_be_written;
-            size_written += curr_size_written;
-            printk(KERN_INFO "asgn2: count %d, size_written %d\n", count, size_written);
-            // if still more to write
-            if (size_written != count) {
-                begin_page_no++;  // go to next page
-                begin_offset = 0; // offset at start of page
-                printk(KERN_INFO "asgn2: Write to the next page %d\n", begin_page_no);
-            }
-            // nothing else to write
-            else {
-                printk(KERN_INFO "asgn2: Nothing left to write\n");
-                break;
-            }
-        }
-    }
-
-    *f_pos += size_written;
-    
-    printk(KERN_INFO "asgn2: size_written = %d\n", size_written);
-    
-    asgn2_device.data_size = max(asgn2_device.data_size, orig_f_pos + size_written);
-    
-    printk(KERN_INFO "asgn2: asgn2_write finished\n");
-    
-    return size_written;
-}
+void asgn2_write(char byte) {
+ }
 
 #define SET_NPROC_OP 1
 #define TEM_SET_NPROC _IOW(MYIOC_TYPE, SET_NPROC_OP, int) 
@@ -415,7 +393,6 @@ int asgn2_read_procmem(char *buf, char **start, off_t offset, int count, int *eo
 struct file_operations asgn2_fops = {
     .owner = THIS_MODULE,
     .read = asgn2_read,
-    .write = asgn2_write,
     .unlocked_ioctl = asgn2_ioctl,
     .open = asgn2_open,
     .release = asgn2_release,

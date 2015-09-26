@@ -1,7 +1,8 @@
 /**
  * File: gpio.c
- * Date: 12/08/2014
+ * Date: 26/09/2015
  * Author: Zhiyi Huang
+ * Modified: Ashley Manson
  * Version: 0.1
  *
  * This is a gpio API for the dummy gpio device which
