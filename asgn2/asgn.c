@@ -99,8 +99,8 @@ int toggle = 1;                           /* toggle for first/second part of hal
 u8 top_full_byte = 0;                     /* full byte read in from top half */
 circular_buf cbuf;                        /* circular buffer temp storage */
 sessions_tracker sessions;                /* struct to keep track of sessions */
-int fin_reading = 0;
-spinlock_t lock;
+int fin_reading = 0;                      /* has read finsihed */
+spinlock_t lock;                          /* lock for interrupt */
 
 /**
  * Bottom Half
@@ -266,21 +266,22 @@ int asgn2_release (struct inode *inode, struct file *filp) {
 }
 
 /**
- * This function reads contents of the virtual disk and writes to the user 
+ * This function reads contents of the virtual disk and writes to the user
+ * Does not work correctly, fails to read from multiple pages
  */
 ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos) {
 
     size_t size_read = 0;                     /* size read from virtual disk in this function */
     size_t begin_offset;                      /* the offset from the beginning of a page to start reading */
     int begin_page_no;// = *f_pos / PAGE_SIZE;   /* the first page which contains the requested data */
-    int curr_page_no = 0;                    /* the current page number */
+    int curr_page_no = -1;                    /* the current page number */
     size_t curr_size_read;                    /* size read from the virtual disk in this round */
     size_t size_to_be_read;                   /* size to be read in the current round in while loop */
     size_t size_to_read;                      /* size left to read from kernel space */
     page_node *curr;                          /* the current node in the list */
     page_node *temp;                          /* temp node for if deleting first page */
-    size_t total_to_read;
-    size_t actual_size;
+    size_t total_to_read;                     /* total session size */
+    size_t actual_size;                       /* actual size to read */
 
     if (fin_reading) {
         printk(KERN_INFO "asgn2: Already finished reading current session\n");
@@ -292,20 +293,20 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
         wait_event_interruptible(wq, sessions.count != 0);       
     }
 
-    actual_size = min(count, asgn2_device.data_size - sessions.read_offset);
     total_to_read = sessions.sizes[sessions.head];
+    actual_size = min(count, total_to_read);
     //begin_offset = sessions.read_offset % PAGE_SIZE;
     begin_page_no = 0;//sessions.read_offset / PAGE_SIZE;
     
     // Move head along by 1
     sessions.head = (sessions.head + 1) % MAX_SESSIONS;
     sessions.count--;
+    begin_offset = sessions.read_offset;
                           
     // loop through the list, reading the contents of each page
     list_for_each_entry_safe(curr, temp, &asgn2_device.mem_list, list) {
         // if we have reached the starting page to read from
-        if (curr_page_no == begin_page_no) {
-            begin_offset = sessions.read_offset;
+        if (++curr_page_no == begin_page_no) {
             size_to_read = min((int)(PAGE_SIZE - begin_offset), (int)(actual_size));
             //size_to_read = min(size_to_read, total_to_read);
             int temp = total_to_read - size_read;
@@ -323,8 +324,8 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
                 return size_read;
             }
 
-            //begin_offset += curr_size_read;
             curr_size_read = size_to_read - size_to_be_read;
+            begin_offset += curr_size_read;
             size_to_read = size_to_be_read;
             size_read += curr_size_read;
             sessions.read_offset = (sessions.read_offset + curr_size_read) % PAGE_SIZE;
@@ -337,7 +338,6 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
                 asgn2_device.num_pages--;
                 asgn2_device.data_size -= PAGE_SIZE;
                 printk(KERN_INFO "asgn2: Removed the first page\n");
-                curr_page_no++;
             }
             // if nothing else to read
             if (size_read == total_to_read) {
