@@ -194,7 +194,7 @@ irqreturn_t dummyport_interrupt(int irq, void *dev_id) {
             // store in circular buffer
             cbuf.buffer[cbuf_end] = top_full_byte;
             cbuf.count++;
-            sessions.sizes[session_end]++; // += sizeof(top_full_byte);
+            sessions.sizes[session_end]++;
         }
         spin_unlock(&lock);
         
@@ -271,18 +271,18 @@ int asgn2_release (struct inode *inode, struct file *filp) {
  */
 ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos) {
 
-    size_t size_read = 0;                     /* size read from virtual disk in this function */
-    size_t begin_offset;                      /* the offset from the beginning of a page to start reading */
-    int begin_page_no;// = *f_pos / PAGE_SIZE;   /* the first page which contains the requested data */
-    int curr_page_no = -1;                    /* the current page number */
-    size_t curr_size_read;                    /* size read from the virtual disk in this round */
-    size_t size_to_be_read;                   /* size to be read in the current round in while loop */
-    size_t size_to_read;                      /* size left to read from kernel space */
-    page_node *curr;                          /* the current node in the list */
-    page_node *temp;                          /* temp node for if deleting first page */
-    size_t total_to_read;                     /* total session size */
-    size_t actual_size;                       /* actual size to read */
-    size_t size_left;
+    size_t size_read = 0;   /* size read from virtual disk in this function */
+    size_t begin_offset;    /* the offset from the beginning of a page to start reading */
+    int begin_page_no;      /* the first page which contains the requested data */
+    int curr_page_no = -1;  /* the current page number */
+    size_t curr_size_read;  /* size read from the virtual disk in this round */
+    size_t size_to_be_read; /* size to be read in the current round in while loop */
+    size_t size_to_read;    /* size left to read from kernel space */
+    page_node *curr;        /* the current node in the list */
+    page_node *temp;        /* temp node for if deleting first page */
+    size_t total_to_read;   /* total session size */
+    size_t actual_size;     /* actual size to read */
+    size_t size_left;       /* quickly calulate size_left if going to end of session */
     
     if (fin_reading) {
         printk(KERN_INFO "asgn2: Already finished reading current session\n");
@@ -296,8 +296,7 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
 
     total_to_read = sessions.sizes[sessions.head];
     actual_size = min(count, total_to_read);
-    //begin_offset = sessions.read_offset % PAGE_SIZE;
-    begin_page_no = 0;//sessions.read_offset / PAGE_SIZE;
+    begin_page_no = 0;
     
     // Move head along by 1
     sessions.head = (sessions.head + 1) % MAX_SESSIONS;
@@ -309,11 +308,10 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
         // if we have reached the starting page to read from
         if (++curr_page_no == begin_page_no) {
             size_to_read = min((int)(PAGE_SIZE - begin_offset), (int)(actual_size));
-            //size_to_read = min(size_to_read, total_to_read);
             size_left = total_to_read - size_read;
             if (size_left < PAGE_SIZE) {
                 size_left = PAGE_SIZE - (size_left + begin_offset);
-                size_to_read = ((PAGE_SIZE - begin_offset) - size_left);
+                size_to_read = (PAGE_SIZE - begin_offset) - size_left;
                 fin_reading = 1;
             }
             printk(KERN_INFO "asgn2: Reading from page %d with size %d\n", curr_page_no, size_to_read);
@@ -349,7 +347,6 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
             // still something to read
             else {
                 begin_page_no++;  // go to next page
-                //begin_offset = 0;
                 printk(KERN_INFO "asgn2: Read from the next page %d\n", begin_page_no);
             }
         }
@@ -447,6 +444,7 @@ int __init asgn2_init_module(void) {
     }
 
     spin_lock_init(&lock);
+    
     atomic_set(&asgn2_device.nprocs, 0);
     atomic_set(&asgn2_device.max_nprocs, 1);
     result = alloc_chrdev_region(&asgn2_device.dev, asgn2_minor, asgn2_dev_count, MYDEV_NAME);
