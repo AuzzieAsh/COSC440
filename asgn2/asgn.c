@@ -282,7 +282,8 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     page_node *temp;                          /* temp node for if deleting first page */
     size_t total_to_read;                     /* total session size */
     size_t actual_size;                       /* actual size to read */
-
+    size_t size_left;
+    
     if (fin_reading) {
         printk(KERN_INFO "asgn2: Already finished reading current session\n");
         return 0;
@@ -309,10 +310,10 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
         if (++curr_page_no == begin_page_no) {
             size_to_read = min((int)(PAGE_SIZE - begin_offset), (int)(actual_size));
             //size_to_read = min(size_to_read, total_to_read);
-            int temp = total_to_read - size_read;
-            if (temp < PAGE_SIZE) {
-                temp = PAGE_SIZE - (temp + begin_offset);
-                size_to_read = ((PAGE_SIZE - begin_offset) - temp);
+            size_left = total_to_read - size_read;
+            if (size_left < PAGE_SIZE) {
+                size_left = PAGE_SIZE - (size_left + begin_offset);
+                size_to_read = ((PAGE_SIZE - begin_offset) - size_left);
                 fin_reading = 1;
             }
             printk(KERN_INFO "asgn2: Reading from page %d with size %d\n", curr_page_no, size_to_read);
