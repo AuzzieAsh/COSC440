@@ -144,7 +144,6 @@ void tasklet_copy(unsigned long data) {
         }
         // Copy byte to page
         memcpy(page_address(curr->page) + begin_offset, &byte, sizeof(byte));
-        printk(KERN_INFO "kernel address = %d\n", page_address(curr->page) + begin_offset);
 
         asgn2_device.data_size += sizeof(byte);
         sessions.write_offset = (sessions.write_offset + sizeof(byte)) % PAGE_SIZE;
@@ -274,7 +273,7 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     size_t size_read = 0;                     /* size read from virtual disk in this function */
     size_t begin_offset;                      /* the offset from the beginning of a page to start reading */
     int begin_page_no;// = *f_pos / PAGE_SIZE;   /* the first page which contains the requested data */
-    int curr_page_no = -1;                    /* the current page number */
+    int curr_page_no = 0;                    /* the current page number */
     size_t curr_size_read;                    /* size read from the virtual disk in this round */
     size_t size_to_be_read;                   /* size to be read in the current round in while loop */
     size_t size_to_read;                      /* size left to read from kernel space */
@@ -288,7 +287,7 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
         return 0;
     }
     
-    if (sessions.count == 0) {
+    if (sessions.count == 0 && sessions.read_offset == sessions.write_offset) {
         printk(KERN_INFO "asgn2: Waiting to read\n");
         wait_event_interruptible(wq, sessions.count != 0);       
     }
@@ -305,15 +304,18 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     // loop through the list, reading the contents of each page
     list_for_each_entry_safe(curr, temp, &asgn2_device.mem_list, list) {
         // if we have reached the starting page to read from
-        if (++curr_page_no == begin_page_no) {
+        if (curr_page_no == begin_page_no) {
             begin_offset = sessions.read_offset;
             size_to_read = min((int)(PAGE_SIZE - begin_offset), (int)(actual_size));
-            size_to_read = min(size_to_read, total_to_read);
+            //size_to_read = min(size_to_read, total_to_read);
+            int temp = total_to_read - size_read;
+            if (temp < PAGE_SIZE) {
+                temp = PAGE_SIZE - (temp + begin_offset);
+                size_to_read = ((PAGE_SIZE - begin_offset) - temp);
+                fin_reading = 1;
+            }
             printk(KERN_INFO "asgn2: Reading from page %d with size %d\n", curr_page_no, size_to_read);
             size_to_be_read = copy_to_user(buf + size_read, page_address(curr->page) + begin_offset, size_to_read);
-
-            printk(KERN_INFO "kernel address = %d\n", page_address(curr->page) + begin_offset);
-            printk(KERN_INFO "user address = %d\n", buf + size_read);
             
             if (size_to_be_read != 0) {
                 printk(KERN_WARNING "asgn2: Tried to write to invalid memory!\n");
@@ -321,7 +323,7 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
                 return size_read;
             }
 
-            begin_offset += curr_size_read;
+            //begin_offset += curr_size_read;
             curr_size_read = size_to_read - size_to_be_read;
             size_to_read = size_to_be_read;
             size_read += curr_size_read;
@@ -335,6 +337,7 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
                 asgn2_device.num_pages--;
                 asgn2_device.data_size -= PAGE_SIZE;
                 printk(KERN_INFO "asgn2: Removed the first page\n");
+                curr_page_no++;
             }
             // if nothing else to read
             if (size_read == total_to_read) {
@@ -345,7 +348,7 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
             // still something to read
             else {
                 begin_page_no++;  // go to next page
-                begin_offset = 0;
+                //begin_offset = 0;
                 printk(KERN_INFO "asgn2: Read from the next page %d\n", begin_page_no);
             }
         }
