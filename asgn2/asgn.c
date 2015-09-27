@@ -99,6 +99,7 @@ int toggle = 1;                           /* toggle for first/second part of hal
 u8 top_full_byte = 0;                     /* full byte read in from top half */
 circular_buf cbuf;                        /* circular buffer temp storage */
 sessions_tracker sessions;                /* struct to keep track of sessions */
+int fin_reading = 0;
 
 /**
  * Bottom Half
@@ -233,7 +234,8 @@ int asgn2_open(struct inode *inode, struct file *filp) {
         printk(KERN_WARNING "asgn2: Device already in use!\n");
         return -EBUSY;
     }    
-    
+
+    fin_reading = 0;
     atomic_inc(&asgn2_device.nprocs);
     printk(KERN_INFO "asgn2: Device Open: %d\n", atomic_read(&asgn2_device.nprocs));
     
@@ -258,7 +260,7 @@ int asgn2_release (struct inode *inode, struct file *filp) {
 ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos) {
 
     size_t size_read = 0;                     /* size read from virtual disk in this function */
-    size_t begin_offset; /* the offset from the beginning of a page to start reading */
+    size_t begin_offset;                      /* the offset from the beginning of a page to start reading */
     int begin_page_no = *f_pos / PAGE_SIZE;   /* the first page which contains the requested data */
     int curr_page_no = -1;                    /* the current page number */
     size_t curr_size_read;                    /* size read from the virtual disk in this round */
@@ -266,13 +268,13 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     size_t size_to_read;                      /* size left to read from kernel space */
     page_node *curr;                          /* the current node in the list */
     page_node *temp;                          /* temp node for if deleting first page */
+    size_t total_to_read;
+
+    if (fin_reading) {
+        printk(KERN_INFO "asgn2: Already finished reading current session\n");
+        return 0;
+    }
     
-    printk(KERN_INFO "asgn2: asgn2_read called\n");
-    printk(KERN_INFO "asgn2: Number of pages %d\n", asgn2_device.num_pages);
-
-    printk(KERN_INFO "asgn2: sessions.head = %d\n", sessions.head);
-    printk(KERN_INFO "asgn2: sessions.count = %d\n", sessions.count);
-
     if (*f_pos > asgn2_device.data_size) {
         printk(KERN_WARNING "asgn2: Reading beyond device memory\n");
         return 0;
@@ -284,12 +286,9 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     }
 
     count = min(count, asgn2_device.data_size - sessions.read_offset);
-    //count = min(count, (size_t)sessions.sizes[sessions.head]);
-    //count = sessions.sizes[sessions.head] - (int)f_pos;
-
-    printk(KERN_INFO "asgn2: *f_pos = %d\n", (int)*f_pos);
-    printk(KERN_INFO "asgn2: count = %d\n", count);
+    total_to_read = sessions.sizes[sessions.head];
     
+    // Move head along by 1
     sessions.head = (sessions.head + 1) % MAX_SESSIONS;
     sessions.count--;
                           
@@ -299,6 +298,7 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
         if (++curr_page_no == begin_page_no) {
             begin_offset = sessions.read_offset;
             size_to_read = min((int)(PAGE_SIZE - begin_offset), (int)(count - size_read));
+            size_to_read = min(size_to_read, total_to_read);
             printk(KERN_INFO "asgn2: Reading from page %d with size %d\n", curr_page_no, size_to_read);
             size_to_be_read = copy_to_user(buf + size_read, page_address(curr->page) + begin_offset, size_to_read);
             printk(KERN_INFO "asgn2: Size left to read = %d\n", size_to_be_read);
@@ -315,16 +315,17 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
                 asgn2_device.data_size -= PAGE_SIZE;
                 printk(KERN_INFO "asgn2: Removed the first page\n");
             }
-            // if still more to read
-            if (count != size_read) {
+            // if nothing else to read
+            if (size_read == total_to_read) {
+                printk(KERN_INFO "asgn2: Nothing left to read\n");
+                fin_reading = 1;
+                break;
+            }
+            // still something to read
+            else {
                 begin_page_no++;  // go to next page
                 begin_offset = 0; // offset at start of page
                 printk(KERN_INFO "asgn2: Read from the next page %d\n", begin_page_no);
-            }
-            // nothing else to read
-            else {
-                printk(KERN_INFO "asgn2: Nothing left to read\n");
-                break;
             }
         }
     }
@@ -332,8 +333,6 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     *f_pos += size_read;
     
     printk(KERN_INFO "asgn2: size_read = %d\n", size_read);
-    
-    printk(KERN_INFO "asgn2: asgn2_read finished\n");
     
     return size_read;
 }

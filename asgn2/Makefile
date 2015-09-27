@@ -17,10 +17,10 @@ clean:
 	rm -f *~
 
 install: uninstall
-	sudo insmod ./asgn2.ko
-	sudo chown pi:pi /dev/asgn2
-	sudo chmod 777 /dev/asgn2
+	sudo insmod ./$(MODULE_NAME).ko
+	sudo chown pi:pi /dev/$(MODULE_NAME)
+	sudo chmod 777 /dev/$(MODULE_NAME)
 
 uninstall:
 	sudo dmesg -C
-	-sudo rmmod asgn2
+	-sudo rmmod $(MODULE_NAME)

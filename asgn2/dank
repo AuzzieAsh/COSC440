@@ -1,2 +1,0 @@
-#!/bin/bash
-sudo ./test/data_generator text2.txt
