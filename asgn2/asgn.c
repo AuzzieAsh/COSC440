@@ -69,8 +69,8 @@ typedef struct asgn2_dev_t {
  */
 #define BUFFER_CAPACITY 64
 typedef struct circular_buf_t {
-    size_t head;
-    size_t count;
+    int head;
+    int count;
     u8 buffer[BUFFER_CAPACITY];
 } circular_buf;
 
@@ -79,13 +79,15 @@ typedef struct circular_buf_t {
  */
 #define MAX_SESSIONS 100
 typedef struct sessions_tracker_t {
-    size_t head;
-    size_t count;
+    int head;
+    int count;
+    size_t read_offset;
+    size_t write_offset;
     size_t sizes[MAX_SESSIONS];
 } sessions_tracker;
 
 /**
- * >>> Variables <<<
+ * Global Variables
  */
 asgn2_dev asgn2_device;                   /* device for module */
 int asgn2_major = 0;                      /* major number of module */  
@@ -97,7 +99,6 @@ int toggle = 1;                           /* toggle for first/second part of hal
 u8 top_full_byte = 0;                     /* full byte read in from top half */
 circular_buf cbuf;                        /* circular buffer temp storage */
 sessions_tracker sessions;                /* struct to keep track of sessions */
-size_t session_size = 0;                  /* keeps track of current session size */
 
 /**
  * Bottom Half
@@ -115,7 +116,7 @@ void tasklet_copy(unsigned long data) {
         byte = cbuf.buffer[cbuf.head];
         cbuf.head = (cbuf.head + 1) % BUFFER_CAPACITY;
         cbuf.count--;
-        begin_offset = asgn2_device.data_size % PAGE_SIZE;
+        begin_offset = sessions.write_offset;
         ptr = asgn2_device.mem_list.next;
         curr = list_entry(ptr, page_node, list);
 
@@ -140,6 +141,8 @@ void tasklet_copy(unsigned long data) {
         // Copy byte to page
         memcpy(page_address(curr->page) + begin_offset, &byte, sizeof(byte));
         asgn2_device.data_size += sizeof(byte);
+        sessions.write_offset = (sessions.write_offset + sizeof(byte)) % PAGE_SIZE;
+        printk(KERN_INFO "asgn2: write_offset = %d\n", sessions.write_offset);
     }
 }
 
@@ -157,10 +160,12 @@ irqreturn_t dummyport_interrupt(int irq, void *dev_id) {
     
     // First part of byte
     if (toggle) {
+        toggle = 0;
         top_full_byte = read_byte << 4;
     }
     // Second part of byte
     else {
+        toggle = 1;
         top_full_byte = top_full_byte | read_byte;
         
         printk(KERN_INFO "asgn2: Assembled full byte: %d\n", top_full_byte);
@@ -171,7 +176,7 @@ irqreturn_t dummyport_interrupt(int irq, void *dev_id) {
         }
         else {
             if (cbuf.count >= BUFFER_CAPACITY) {
-                printk(KERN_WARNING "asgn2: Temporary buffer is full, dropping most recent half byte\n");
+                printk(KERN_WARNING "asgn2: Temporary buffer is full, dropping most recent byte\n");
                 return IRQ_HANDLED;
             }
             
@@ -185,8 +190,6 @@ irqreturn_t dummyport_interrupt(int irq, void *dev_id) {
         tasklet_schedule(&buffer_copy);
         printk(KERN_INFO "asgn2: Tasklet scheduled\n");
     }
-
-    toggle = toggle ? 0 : 1;
     return IRQ_HANDLED;
 }
 
@@ -197,8 +200,6 @@ void free_memory_pages(void) {
 
     int page_num = 0;
     page_node *curr, *tmp;
-
-    printk(KERN_INFO "asgn2: free_memory_pages called\n");
 
     // loop through the list, while freeing all the pages
     list_for_each_entry_safe(curr, tmp, &asgn2_device.mem_list, list) {
@@ -214,23 +215,17 @@ void free_memory_pages(void) {
     asgn2_device.data_size = 0;
     asgn2_device.num_pages = 0;
     
-    printk(KERN_INFO "asgn2: free_memory_pages finished\n");
+    printk(KERN_INFO "asgn2: Freed all pages\n");
 }
 
 /**
- * This function opens the virtual disk, if it is opened in the write-only
- * mode, all memory pages will be freed.
+ * This function opens the virtual disk.
  */
 int asgn2_open(struct inode *inode, struct file *filp) {
 
-    int i;
-    int session_end = sessions.head + sessions.count;
-
-    printk(KERN_INFO "asgn2: asgn2_open called\n");
-
     // If opened in write-only
     if ((filp->f_flags & O_ACCMODE) == O_WRONLY || (filp->f_flags & O_ACCMODE) == O_RDWR) {
-        printk(KERN_INFO "asgn2: Cannot be open to write too\n");
+        printk(KERN_INFO "asgn2: Cannot be open to write too!\n");
         return -EACCES;
     }
     
@@ -240,15 +235,8 @@ int asgn2_open(struct inode *inode, struct file *filp) {
     }    
     
     atomic_inc(&asgn2_device.nprocs);
-    printk(KERN_INFO "asgn2: Process count incremented to %d\n", atomic_read(&asgn2_device.nprocs));
-
-    session_size = 0;
-    for (i = sessions.head; i < session_end; i++) {
-        session_size += sessions.sizes[i];
-    }
+    printk(KERN_INFO "asgn2: Device Open: %d\n", atomic_read(&asgn2_device.nprocs));
     
-    printk(KERN_INFO "asgn2: asgn2_open finished\n");
-
     return 0;
 }
 
@@ -257,13 +245,9 @@ int asgn2_open(struct inode *inode, struct file *filp) {
  * in this case. 
  */
 int asgn2_release (struct inode *inode, struct file *filp) {
-
-    printk(KERN_INFO "asgn2: asgn2_release called\n");
     
     atomic_dec(&asgn2_device.nprocs);
-    printk(KERN_INFO "asgn2: Process count decremented to %d\n", atomic_read(&asgn2_device.nprocs));
-
-    printk(KERN_INFO "asgn2: asgn2_release finished\n");
+    printk(KERN_INFO "asgn2: Device Release: %d\n", atomic_read(&asgn2_device.nprocs));
 
     return 0;
 }
@@ -286,33 +270,34 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
     printk(KERN_INFO "asgn2: asgn2_read called\n");
     printk(KERN_INFO "asgn2: Number of pages %d\n", asgn2_device.num_pages);
 
-    printk(KERN_INFO "asgn2: session_size = %d\n", session_size);
     printk(KERN_INFO "asgn2: sessions.head = %d\n", sessions.head);
     printk(KERN_INFO "asgn2: sessions.count = %d\n", sessions.count);
+
+    if (*f_pos > asgn2_device.data_size) {
+        printk(KERN_WARNING "asgn2: Reading beyond device memory\n");
+        return 0;
+    }
     
-    if (session_size == 0 || sessions.count == 0) {
+    if (sessions.count == 0) {
         printk(KERN_WARNING "asgn2: Nothing to read!\n");
         return 0;
     }
 
-    if (sessions.head != 0)
-        *f_pos = sessions.sizes[sessions.head-1];
-    
-    begin_offset = *f_pos % PAGE_SIZE;
-    
-    //count = min(count, asgn2_device.data_size - (size_t)*f_pos);
+    count = min(count, asgn2_device.data_size - sessions.read_offset);
     //count = min(count, (size_t)sessions.sizes[sessions.head]);
-    count = sessions.sizes[sessions.head] - *f_pos;
+    //count = sessions.sizes[sessions.head] - (int)f_pos;
+
+    printk(KERN_INFO "asgn2: *f_pos = %d\n", (int)*f_pos);
+    printk(KERN_INFO "asgn2: count = %d\n", count);
     
-    printk(KERN_INFO "sessions before\n");
     sessions.head = (sessions.head + 1) % MAX_SESSIONS;
     sessions.count--;
-    printk(KERN_INFO "sessions after\n");
                           
     // loop through the list, reading the contents of each page
     list_for_each_entry_safe(curr, temp, &asgn2_device.mem_list, list) {
         // if we have reached the starting page to read from
         if (++curr_page_no == begin_page_no) {
+            begin_offset = sessions.read_offset;
             size_to_read = min((int)(PAGE_SIZE - begin_offset), (int)(count - size_read));
             printk(KERN_INFO "asgn2: Reading from page %d with size %d\n", curr_page_no, size_to_read);
             size_to_be_read = copy_to_user(buf + size_read, page_address(curr->page) + begin_offset, size_to_read);
@@ -320,8 +305,10 @@ ssize_t asgn2_read(struct file *filp, char __user *buf, size_t count, loff_t *f_
             curr_size_read = size_to_read - size_to_be_read;
             size_to_read = size_to_be_read;
             size_read += curr_size_read;
-            // if read all from first page, delete it
-            if (curr_size_read + begin_offset == PAGE_SIZE) {
+            sessions.read_offset = (sessions.read_offset + curr_size_read) % PAGE_SIZE;
+
+            // if read all from first page, remove it
+            if (sessions.read_offset == 0) {
                 __free_page(curr->page);
                 list_del(&curr->list);
                 asgn2_device.num_pages--;
@@ -363,8 +350,6 @@ long asgn2_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
     int new_nprocs;
     int result;
 
-    printk(KERN_INFO "asgn2: asgn2_ioctl called\n");
-
     // check if cmd is for this device
     if (_IOC_TYPE(cmd) != MYIOC_TYPE) {
         printk(KERN_WARNING "asgn2: Got invalid case cmd = %d\n", cmd);
@@ -388,8 +373,6 @@ long asgn2_ioctl (struct file *filp, unsigned cmd, unsigned long arg) {
     default:
         return -ENOTTY;
     }
-
-    printk(KERN_INFO "asgn2: asgn2_ioctl finished\n");
     
     return 0;
 }
@@ -421,13 +404,30 @@ struct file_operations asgn2_fops = {
  */
 int __init asgn2_init_module(void) {
 
-    int result; 
+    int result, index; 
 
+    // init cbuf to 0
+    cbuf.head = 0;
+    cbuf.count = 0;
+    for (index = 0; index < BUFFER_CAPACITY; index++) {
+        cbuf.buffer[index] = 0;
+    }
+
+    // init sessions to 0
+    sessions.head = 0;
+    sessions.count = 0;
+    sessions.read_offset = 0;
+    sessions.write_offset = 0;
+    for (index = 0; index < MAX_SESSIONS; index++) {
+        sessions.sizes[index] = 0;
+    }
+    
     atomic_set(&asgn2_device.nprocs, 0);
     atomic_set(&asgn2_device.max_nprocs, 1);
     result = alloc_chrdev_region(&asgn2_device.dev, asgn2_minor, asgn2_dev_count, MYDEV_NAME);
     if (result < 0)
         goto fail_device;
+
     asgn2_device.cdev = cdev_alloc();
     asgn2_device.cdev->ops = &asgn2_fops;
     asgn2_device.cdev->owner = asgn2_fops.owner;
@@ -440,6 +440,7 @@ int __init asgn2_init_module(void) {
         printk(KERN_INFO "asgn2: Failed to create proc entry %s\n", MYDEV_NAME);
         return -ENOMEM;
     }
+
     asgn2_proc->read_proc = asgn2_read_procmem;
 
     result = gpio_dummy_init();
