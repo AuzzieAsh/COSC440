@@ -1,5 +1,0 @@
-#!/bin/bash
-./data_generator asgn.c
-sudo dmesg -C
-rm output.txt
-cat /dev/asgn2 > output.txt
